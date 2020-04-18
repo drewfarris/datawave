@@ -60,7 +60,7 @@ fi
 
 export HADOOP_CLASSPATH=$CLASSPATH
 export HADOOP_OPTS="-Dfile.encoding=UTF8 -Duser.timezone=GMT $HADOOP_INGEST_OPTS"
-export CHILD_MAP_OPTS="-Xmx${LIVE_CHILD_MAP_MAX_MEMORY_MB}m -XX:+UseConcMarkSweepGC -Dfile.encoding=UTF8 -Duser.timezone=GMT -XX:+UseNUMA $CHILD_INGEST_OPTS"
+export CHILD_MAP_OPTS="-Xmx${LIVE_CHILD_MAP_MAX_MEMORY_MB}m -XX:+UseConcMarkSweepGC -Dfile.encoding=UTF8 -Duser.timezone=GMT -XX:+UseNUMA -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=5005 $CHILD_INGEST_OPTS"
 export CHILD_REDUCE_OPTS="-Xmx${LIVE_CHILD_REDUCE_MAX_MEMORY_MB}m -XX:+UseConcMarkSweepGC -Dfile.encoding=UTF8 -Duser.timezone=GMT -XX:+UseNUMA $CHILD_INGEST_OPTS"
 
 
