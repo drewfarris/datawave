@@ -316,7 +316,7 @@
     </bean>
 
     <!-- Query Logic that returns document term frequency information -->
-    <bean id="TermFrequencyQuery" parent="baseQueryLogic" scope="prototype"  class="datawave.query.tables.content.TermFrequencyQueryTable">
+    <bean id="TermFrequencyQuery" parent="baseQueryLogic" scope="prototype"  class="datawave.query.tables.term.TermFrequencyQueryTable">
         <property name="tableName" value="${shard.table.name}" />
         <property name="maxResults" value="-1" />
         <property name="maxWork" value="-1" />

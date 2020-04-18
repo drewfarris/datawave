@@ -7,11 +7,19 @@ import com.google.common.collect.ImmutableSet;
 import java.util.Collections;
 import java.util.Set;
 
+import datawave.query.config.TermFrequencyQueryConfiguration;
+import datawave.query.transformer.TermFrequencyQueryTransformer;
+import datawave.query.util.QueryScannerHelper;
+import datawave.webservice.query.QueryImpl.Parameter;
+import datawave.webservice.query.exception.QueryException;
 import org.apache.accumulo.core.client.Connector;
 import org.apache.accumulo.core.client.Scanner;
+import org.apache.accumulo.core.client.TableNotFoundException;
 import org.apache.accumulo.core.data.Key;
+import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.security.Authorizations;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.log4j.Logger;
 
 import datawave.ingest.mapreduce.handler.ExtendedDataTypeHandler;
@@ -24,9 +32,14 @@ import datawave.webservice.query.configuration.GenericQueryConfiguration;
 import datawave.webservice.query.logic.BaseQueryLogic;
 import datawave.webservice.query.logic.QueryLogicTransformer;
 
+import static datawave.query.Constants.NULL;
+
 public class TermFrequencyQueryTable extends BaseQueryLogic<Entry<Key,Value>> {
     
     protected static final Logger log = ThreadConfigurableLogger.getLogger(TermFrequencyQueryTable.class);
+    
+    private static final String PARENT_ONLY = "\1";
+    private static final String ALL = "\u10FFFF";
     
     public TermFrequencyQueryTable() {
         super();
@@ -69,15 +82,15 @@ public class TermFrequencyQueryTable extends BaseQueryLogic<Entry<Key,Value>> {
     }
     
     @Override
-    public GenericQueryConfiguration initialize(Connector connection, Query settings, Set<Authorizations> runtimeQueryAuthorizations) throws Exception {
+    public GenericQueryConfiguration initialize(Connector connection, Query settings, Set<Authorizations> auths) throws Exception {
         TermFrequencyQueryConfiguration config = new TermFrequencyQueryConfiguration(this, settings);
         config.setConnector(connection);
         config.setAuthorizations(auths);
         
-        int fieldSeparation = settings.query().indexOf(':');
+        int pos = settings.getQuery().indexOf(':');
         String term = null;
-        if (fieldSeparaton > 0) {
-            term = settings.getQuery().substring(fieldSeparation + 1);
+        if (pos > 0) {
+            term = settings.getQuery().substring(pos + 1);
         } else {
             term = settings.getQuery();
         }
@@ -124,9 +137,9 @@ public class TermFrequencyQueryTable extends BaseQueryLogic<Entry<Key,Value>> {
         TermFrequencyQueryConfiguration tfConfig = (TermFrequencyQueryConfiguration) configuration;
         
         try {
-            Scanner scanner = QueryScannerHelper.createScanner(tcConfig.getConnector(), tcConfig.getTableName(), tcConfig.getAuthorizations(),
-                            tcConfig.getQuery());
-            scanner.setRange(config.getRange());
+            Scanner scanner = QueryScannerHelper.createScanner(tfConfig.getConnector(), tfConfig.getTableName(), tfConfig.getAuthorizations(),
+                            tfConfig.getQuery());
+            scanner.setRange(tfConfig.getRange());
             
             this.iterator = scanner.iterator();
             this.scanner = scanner;
