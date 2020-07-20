@@ -39,6 +39,7 @@ import org.junit.Test;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
@@ -64,7 +65,12 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
         FieldConfig generic = new GenericCityFields();
         generic.addIndexField(CityField.COUNTRY.name());
         dataTypes.add(new FacetedCitiesDataType(CitiesDataType.CityEntry.generic, generic));
-        
+        dataTypes.add(new FacetedCitiesDataType(CitiesDataType.CityEntry.usa, generic));
+        dataTypes.add(new FacetedCitiesDataType(CitiesDataType.CityEntry.italy, generic));
+        dataTypes.add(new FacetedCitiesDataType(CitiesDataType.CityEntry.london, generic));
+        dataTypes.add(new FacetedCitiesDataType(CitiesDataType.CityEntry.paris, generic));
+        dataTypes.add(new FacetedCitiesDataType(CitiesDataType.CityEntry.rome, generic));
+
         final AccumuloSetupHelper helper = new AccumuloSetupHelper(dataTypes);
         connector = helper.loadTables(log, TEARDOWN.EVERY_OTHER, INTERRUPT.NEVER);
     }
@@ -115,14 +121,31 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
         Set<String> expected = new HashSet<>(2);
         // @formatter:off
         expected.add("[" +
-                "CITY; london -- london//2, " +
-                "CITY; paris -- paris//2, " +
-                "CITY; rome -- rome//2, " +
-                "CONTINENT; europe -- europe//2, " +
-                "STATE; hainaut -- hainaut//1, " +
-                "STATE; lazio -- lazio//2, " +
-                "STATE; lle-de-france -- lle-de-france//2, " +
-                "STATE; london -- london//1" +
+                "CITY; florance -- florance//1, " +
+                "CITY; london -- london//3, " +
+                "CITY; milan -- milan//1, " +
+                "CITY; naples -- naples//1, " +
+                "CITY; palermo -- palermo//1, " +
+                "CITY; paris -- paris//9, " +
+                "CITY; rome -- rome//8, " +
+                "CITY; turin -- turin//1, " +
+                "CITY; venice -- venice//1, " +
+                "CONTINENT; europe -- europe//13, " +
+                "STATE; campania -- campania//1, " +
+                "STATE; castilla y leon -- castilla y leon//1, " +
+                "STATE; gelderland -- gelderland//1, " +
+                "STATE; hainaut -- hainaut//3, " +
+                "STATE; lazio -- lazio//4, " +
+                "STATE; lle-de-france -- lle-de-france//3, " +
+                "STATE; lombardia -- lombardia//1, " +
+                "STATE; london -- london//1, " +
+                "STATE; madrid -- madrid//2, " +
+                "STATE; piemonte -- piemonte//1, " +
+                "STATE; rhone-alps -- rhone-alps//2, " +
+                "STATE; sicilia -- sicilia//1, " +
+                "STATE; toscana -- toscana//1, " +
+                "STATE; veneto -- veneto//1, " +
+                "STATE; viana do castelo -- viana do castelo//1" +
                 "]");
         // @formatter:on
         String query = CitiesDataType.CityField.CONTINENT.name() + " == 'Europe'";
@@ -136,9 +159,15 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
         
         Set<String> expected = new HashSet<>(2);
         // TODO: this test isn't working properly. I would expect a query for Italy that is configured to facet
-        // the CITY field - to return a facet for rome and paris (because there is a paris, italy entry in
-        // generic-cities.csv
-        // expected.add("[italy -- italy//1]");
+        // the CITY field - to return a facet for rome and paris, but also return a field name.
+
+        // @formatter:off
+        expected.add("[" +
+                "null; paris -- paris//1, " +
+                "null; rome -- rome//2" +
+                "]");
+        // @formatter:on
+
         String query = CityField.COUNTRY.name() + " == 'Italy'";
         
         Map<String,String> options = new HashMap<>();
@@ -165,7 +194,7 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
         Set<String> sortedSet = new TreeSet<>();
         document.getAttributes().forEach(k -> sortedSet.addAll(getValues(k)));
         String result = sortedSet.toString();
-        log.debug("Query result: " + result);
+        log.info("Query size: " + sortedSet.size() + " result: " + result);
         return result;
     }
     
@@ -176,7 +205,9 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
                 values.addAll(getValues(child));
             }
         } else {
-            values.add(String.valueOf(attr.getData()));
+            String a = String.valueOf(attr.getData());
+            String[] bits = a.split(", ");
+            values.addAll(Arrays.asList(bits));
         }
         return values;
     }
