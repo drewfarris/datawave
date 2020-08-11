@@ -48,8 +48,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
+
+import static org.junit.Assert.assertTrue;
 
 public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
     private static final Logger log = Logger.getLogger(FacetedQueryLogicTest.class);
@@ -118,36 +121,33 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
     public void testQueryPrecomputedFacets() throws Exception {
         log.info("------ Test precomputed facet ------");
         
-        Set<String> expected = new HashSet<>(2);
-        // @formatter:off
-        expected.add("[" +
-                "CITY; florance -- florance//1, " +
-                "CITY; london -- london//3, " +
-                "CITY; milan -- milan//1, " +
-                "CITY; naples -- naples//1, " +
-                "CITY; palermo -- palermo//1, " +
-                "CITY; paris -- paris//9, " +
-                "CITY; rome -- rome//8, " +
-                "CITY; turin -- turin//1, " +
-                "CITY; venice -- venice//1, " +
-                "CONTINENT; europe -- europe//13, " +
-                "STATE; campania -- campania//1, " +
-                "STATE; castilla y leon -- castilla y leon//1, " +
-                "STATE; gelderland -- gelderland//1, " +
-                "STATE; hainaut -- hainaut//3, " +
-                "STATE; lazio -- lazio//4, " +
-                "STATE; lle-de-france -- lle-de-france//3, " +
-                "STATE; lombardia -- lombardia//1, " +
-                "STATE; london -- london//1, " +
-                "STATE; madrid -- madrid//2, " +
-                "STATE; piemonte -- piemonte//1, " +
-                "STATE; rhone-alps -- rhone-alps//2, " +
-                "STATE; sicilia -- sicilia//1, " +
-                "STATE; toscana -- toscana//1, " +
-                "STATE; veneto -- veneto//1, " +
-                "STATE; viana do castelo -- viana do castelo//1" +
-                "]");
-        // @formatter:on
+        Set<String> expected = new TreeSet<>();
+        expected.add("CITY; florance -- florance//1");
+        expected.add("CITY; london -- london//3");
+        expected.add("CITY; milan -- milan//1");
+        expected.add("CITY; naples -- naples//1");
+        expected.add("CITY; palermo -- palermo//1");
+        expected.add("CITY; paris -- paris//9");
+        expected.add("CITY; rome -- rome//8");
+        expected.add("CITY; turin -- turin//1");
+        expected.add("CITY; venice -- venice//1");
+        expected.add("CONTINENT; europe -- europe//13");
+        expected.add("STATE; campania -- campania//1");
+        expected.add("STATE; castilla y leon -- castilla y leon//1");
+        expected.add("STATE; gelderland -- gelderland//1");
+        expected.add("STATE; hainaut -- hainaut//3");
+        expected.add("STATE; lazio -- lazio//4");
+        expected.add("STATE; lle-de-france -- lle-de-france//3");
+        expected.add("STATE; lombardia -- lombardia//1");
+        expected.add("STATE; london -- london//1");
+        expected.add("STATE; madrid -- madrid//2");
+        expected.add("STATE; piemonte -- piemonte//1");
+        expected.add("STATE; rhone-alps -- rhone-alps//2");
+        expected.add("STATE; sicilia -- sicilia//1");
+        expected.add("STATE; toscana -- toscana//1");
+        expected.add("STATE; veneto -- veneto//1");
+        expected.add("STATE; viana do castelo -- viana do castelo//1");
+
         String query = CitiesDataType.CityField.CONTINENT.name() + " == 'Europe'";
         
         runTest(query, Collections.emptyMap(), expected);
@@ -156,16 +156,14 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
     @Test
     public void testQueryDynamicFacets() throws Exception {
         log.info("------ Test dynamic facet ------");
-        
-        Set<String> expected = new HashSet<>(2);
+
         // TODO: this test isn't working properly. I would expect a query for Italy that is configured to facet
         // the CITY field - to return a facet for rome and paris, but also return a field name.
+        Set<String> expected = new TreeSet<>();
 
         // @formatter:off
-        expected.add("[" +
-                "null; paris -- paris//1, " +
-                "null; rome -- rome//2" +
-                "]");
+        expected.add("null; paris -- paris//1");
+        expected.add("null; rome -- rome//2");
         // @formatter:on
 
         String query = CityField.COUNTRY.name() + " == 'Italy'";
@@ -178,9 +176,13 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
     }
     
     public void runTest(String query, Map<String,String> options, Set<String> expected) throws Exception {
-        Date[] startEndDate = this.dataManager.getShardStartEndDate();
-        final List<DocumentChecker> queryChecker = new ArrayList<>();
-        runTestQuery(expected, query, startEndDate[0], startEndDate[1], options, queryChecker);
+        final Date[] startEndDate = this.dataManager.getShardStartEndDate();
+
+        // all results are verified bu the FacetDocumentChecker, although dummyExpected does imply that only
+        // one document is expected as the result.
+        final List<DocumentChecker> queryChecker = Collections.singletonList(new FacetDocumentChecker(expected));
+        final Set<String> dummyExpected = Collections.singleton("");
+        runTestQuery(dummyExpected, query, startEndDate[0], startEndDate[1], options, queryChecker);
     }
     
     @Override
@@ -188,28 +190,57 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
         this.auths = CitiesDataType.getTestAuths();
         this.documentKey = CitiesDataType.CityField.EVENT_ID.name();
     }
-    
+
     @Override
     public String parse(Key key, Document document) {
-        Set<String> sortedSet = new TreeSet<>();
-        document.getAttributes().forEach(k -> sortedSet.addAll(getValues(k)));
-        String result = sortedSet.toString();
-        log.info("Query size: " + sortedSet.size() + " result: " + result);
-        return result;
+        //no-op. Everything handled in the FacetDocumentChecker below.
+        return "";
     }
-    
-    private static Set<String> getValues(Attribute<?> attr) {
-        Set<String> values = new HashSet<>();
-        if (attr instanceof Attributes) {
-            for (Attribute<?> child : ((Attributes) attr).getAttributes()) {
-                values.addAll(getValues(child));
-            }
-        } else {
-            String a = String.valueOf(attr.getData());
-            String[] bits = a.split(", ");
-            values.addAll(Arrays.asList(bits));
+
+    public static class FacetDocumentChecker implements DocumentChecker {
+        Set<String> expectedFacets;
+        public FacetDocumentChecker(Set<String> expectedFacets) {
+            this.expectedFacets = expectedFacets;
         }
-        return values;
+
+        @Override
+        public void assertValid(Document document) {
+            Set<String> observedFacets = new TreeSet<>();
+            document.getAttributes().forEach(k -> observedFacets.addAll(getValues(k)));
+
+            Set<String> observedClone = new TreeSet<>(observedFacets);
+
+            observedFacets.removeAll(expectedFacets);
+            expectedFacets.removeAll(observedClone);
+
+            StringBuilder errors = new StringBuilder();
+
+            if (!observedFacets.isEmpty()) {
+                errors.append("Observed unexpected results: " + observedFacets.toString());
+            }
+
+            if (!expectedFacets.isEmpty()) {
+                if (errors.length() > 0) {
+                    errors.append(", ");
+                }
+                errors.append("Did not observe expected results: " + expectedFacets.toString());
+            }
+
+            assertTrue(errors.toString(), observedFacets.isEmpty() && expectedFacets.isEmpty());
+        }
+
+        private static Set<String> getValues(Attribute<?> attr) {
+            Set<String> values = new HashSet<>();
+            if (attr instanceof Attributes) {
+                for (Attribute<?> child : ((Attributes) attr).getAttributes()) {
+                    values.addAll(getValues(child));
+                }
+            } else {
+                String a = String.valueOf(attr.getData());
+                String[] bits = a.split(", ");
+                values.addAll(Arrays.asList(bits));
+            }
+            return values;
+        }
     }
-    
 }

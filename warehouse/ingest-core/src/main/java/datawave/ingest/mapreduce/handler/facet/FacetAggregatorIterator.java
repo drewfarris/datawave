@@ -23,66 +23,68 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-public class FacetAggregatorIterator implements SortedKeyValueIterator<Key, Value> {
-
+public class FacetAggregatorIterator implements SortedKeyValueIterator<Key,Value> {
+    
     private static final Logger log = Logger.getLogger(FacetAggregatorIterator.class);
-    private SortedKeyValueIterator<Key, Value> source;
-
+    private SortedKeyValueIterator<Key,Value> source;
+    
     private Key topKey;
     private Value topValue;
-
+    
     private ArrayList<ColumnVisibility> combiningVisibilities = new ArrayList<>();
     private MarkingFunctions markingFunction = MarkingFunctionsFactory.createMarkingFunctions();
     private String visibility;
-
+    
     public FacetAggregatorIterator() {
         super();
     }
-
+    
     public FacetAggregatorIterator(FacetAggregatorIterator other, IteratorEnvironment env) {
         this.source = other.source.deepCopy(env);
     }
+    
     @Override
-    public void init(SortedKeyValueIterator<Key, Value> sortedKeyValueIterator, Map<String, String> map, IteratorEnvironment iteratorEnvironment) throws IOException {
+    public void init(SortedKeyValueIterator<Key,Value> sortedKeyValueIterator, Map<String,String> map, IteratorEnvironment iteratorEnvironment)
+                    throws IOException {
         this.source = sortedKeyValueIterator.deepCopy(iteratorEnvironment);
         this.visibility = map.get("visibility");
     }
-
+    
     @Override
     public boolean hasTop() {
         return topKey != null;
     }
-
+    
     @Override
     public void seek(Range range, Collection<ByteSequence> columnFamilies, boolean inclusive) throws IOException {
         source.seek(range, columnFamilies, inclusive);
         next();
     }
-
+    
     @Override
     public Key getTopKey() {
         return topKey;
     }
-
+    
     @Override
     public Value getTopValue() {
         return topValue;
     }
-
+    
     @Override
-    public SortedKeyValueIterator<Key, Value> deepCopy(IteratorEnvironment iteratorEnvironment) {
+    public SortedKeyValueIterator<Key,Value> deepCopy(IteratorEnvironment iteratorEnvironment) {
         return new FacetAggregatorIterator(this, iteratorEnvironment);
     }
-
+    
     @Override
     public void next() throws IOException {
         topKey = null;
         topValue = null;
-
+        
         Key lastKey = null;
         ColumnVisibility minVis = null;
         HyperLogLogPlus combinedHllp = null;
-
+        
         if (source.hasTop()) {
             Key topKey = source.getTopKey();
             Value topValue = source.getTopValue();
@@ -91,22 +93,20 @@ public class FacetAggregatorIterator implements SortedKeyValueIterator<Key, Valu
             if (visibility == null) {
                 try {
                     minVis = markingFunction.combine(Collections.singletonList(new ColumnVisibility(topKey.getColumnVisibility())));
-                }
-                catch (MarkingFunctions.Exception mfe) {
+                } catch (MarkingFunctions.Exception mfe) {
                     throw new IOException(mfe);
                 }
-            }
-            else {
+            } else {
                 minVis = new ColumnVisibility(visibility);
             }
             source.next();
         }
-
+        
         while (source.hasTop()) {
-            Key topKey =  source.getTopKey();
+            Key topKey = source.getTopKey();
             Value topValue = source.getTopValue();
             // TODO? collect and merge up at end.
-            if (topKey.equals(lastKey,PartialKey.ROW_COLFAM_COLQUAL)) {
+            if (topKey.equals(lastKey, PartialKey.ROW_COLFAM_COLQUAL)) {
                 HyperLogLogPlus newHllp = HyperLogLogPlus.Builder.build(topValue.get());
                 try {
                     combinedHllp.addAll(newHllp);
@@ -115,21 +115,18 @@ public class FacetAggregatorIterator implements SortedKeyValueIterator<Key, Valu
                         combiningVisibilities.add(minVis);
                         combiningVisibilities.add(new ColumnVisibility(topKey.getColumnVisibility()));
                         minVis = markingFunction.combine(combiningVisibilities);
-                    }
-                    else if (minVis == null) {
+                    } else if (minVis == null) {
                         minVis = new ColumnVisibility(visibility);
                     }
-                }
-                catch (MarkingFunctions.Exception | CardinalityMergeException e) {
+                } catch (MarkingFunctions.Exception | CardinalityMergeException e) {
                     throw new IOException(e);
                 }
                 source.next();
-            }
-            else {
+            } else {
                 break;
             }
         }
-
+        
         if (lastKey != null) {
             topKey = new Key(lastKey.getRow(), lastKey.getColumnFamily(), lastKey.getColumnQualifier(), minVis, lastKey.getTimestamp());
             topValue = new Value(combinedHllp.getBytes());
