@@ -75,7 +75,7 @@ public class FacetTableConfigHelper extends AbstractTableConfigHelper {
     }
     
     protected void configureFacetTable(TableOperations tops) throws AccumuloException, AccumuloSecurityException, TableNotFoundException {
-        // Add the UID aggregator
+        // Add the facet cardinality aggregator
         for (IteratorUtil.IteratorScope scope : IteratorUtil.IteratorScope.values()) {
             String stem = String.format("%s%s.%s", Property.TABLE_ITERATOR_PREFIX, scope.name(), "UIDAggregator");
             setPropertyIfNecessary(tableName, stem, "19,datawave.iterators.TotalAggregatingIterator", tops, log);

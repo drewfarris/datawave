@@ -73,7 +73,7 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
         dataTypes.add(new FacetedCitiesDataType(CitiesDataType.CityEntry.london, generic));
         dataTypes.add(new FacetedCitiesDataType(CitiesDataType.CityEntry.paris, generic));
         dataTypes.add(new FacetedCitiesDataType(CitiesDataType.CityEntry.rome, generic));
-
+        
         final AccumuloSetupHelper helper = new AccumuloSetupHelper(dataTypes);
         connector = helper.loadTables(log, TEARDOWN.EVERY_OTHER, INTERRUPT.NEVER);
     }
@@ -123,15 +123,15 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
         
         Set<String> expected = new TreeSet<>();
         expected.add("CITY; florance -- florance//1");
-        expected.add("CITY; london -- london//3");
+        expected.add("CITY; london -- london//2"); // although london/europe appears 3 times, only 2 doc ids are unique in the test data.
         expected.add("CITY; milan -- milan//1");
         expected.add("CITY; naples -- naples//1");
         expected.add("CITY; palermo -- palermo//1");
         expected.add("CITY; paris -- paris//9");
-        expected.add("CITY; rome -- rome//8");
+        expected.add("CITY; rome -- rome//7"); // although there are 8 entries for rome, only 7 doc ids are unique in the test data.
         expected.add("CITY; turin -- turin//1");
         expected.add("CITY; venice -- venice//1");
-        expected.add("CONTINENT; europe -- europe//13");
+        expected.add("CONTINENT; europe -- europe//24"); // although there are 26 entries for europe, only 24 doc ids are unique in the test data.
         expected.add("STATE; campania -- campania//1");
         expected.add("STATE; castilla y leon -- castilla y leon//1");
         expected.add("STATE; gelderland -- gelderland//1");
@@ -147,7 +147,7 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
         expected.add("STATE; toscana -- toscana//1");
         expected.add("STATE; veneto -- veneto//1");
         expected.add("STATE; viana do castelo -- viana do castelo//1");
-
+        
         String query = CitiesDataType.CityField.CONTINENT.name() + " == 'Europe'";
         
         runTest(query, Collections.emptyMap(), expected);
@@ -156,16 +156,16 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
     @Test
     public void testQueryDynamicFacets() throws Exception {
         log.info("------ Test dynamic facet ------");
-
+        
         // TODO: this test isn't working properly. I would expect a query for Italy that is configured to facet
         // the CITY field - to return a facet for rome and paris, but also return a field name.
         Set<String> expected = new TreeSet<>();
-
+        
         // @formatter:off
         expected.add("null; paris -- paris//1");
         expected.add("null; rome -- rome//2");
         // @formatter:on
-
+        
         String query = CityField.COUNTRY.name() + " == 'Italy'";
         
         Map<String,String> options = new HashMap<>();
@@ -177,7 +177,7 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
     
     public void runTest(String query, Map<String,String> options, Set<String> expected) throws Exception {
         final Date[] startEndDate = this.dataManager.getShardStartEndDate();
-
+        
         // all results are verified bu the FacetDocumentChecker, although dummyExpected does imply that only
         // one document is expected as the result.
         final List<DocumentChecker> queryChecker = Collections.singletonList(new FacetDocumentChecker(expected));
@@ -190,45 +190,46 @@ public class FacetedQueryLogicTest extends AbstractFunctionalQuery {
         this.auths = CitiesDataType.getTestAuths();
         this.documentKey = CitiesDataType.CityField.EVENT_ID.name();
     }
-
+    
     @Override
     public String parse(Key key, Document document) {
-        //no-op. Everything handled in the FacetDocumentChecker below.
+        // no-op. Everything handled in the FacetDocumentChecker below.
         return "";
     }
-
+    
     public static class FacetDocumentChecker implements DocumentChecker {
         Set<String> expectedFacets;
+        
         public FacetDocumentChecker(Set<String> expectedFacets) {
             this.expectedFacets = expectedFacets;
         }
-
+        
         @Override
         public void assertValid(Document document) {
             Set<String> observedFacets = new TreeSet<>();
             document.getAttributes().forEach(k -> observedFacets.addAll(getValues(k)));
-
+            
             Set<String> observedClone = new TreeSet<>(observedFacets);
-
+            
             observedFacets.removeAll(expectedFacets);
             expectedFacets.removeAll(observedClone);
-
+            
             StringBuilder errors = new StringBuilder();
-
+            
             if (!observedFacets.isEmpty()) {
                 errors.append("Observed unexpected results: " + observedFacets.toString());
             }
-
+            
             if (!expectedFacets.isEmpty()) {
                 if (errors.length() > 0) {
                     errors.append(", ");
                 }
                 errors.append("Did not observe expected results: " + expectedFacets.toString());
             }
-
+            
             assertTrue(errors.toString(), observedFacets.isEmpty() && expectedFacets.isEmpty());
         }
-
+        
         private static Set<String> getValues(Attribute<?> attr) {
             Set<String> values = new HashSet<>();
             if (attr instanceof Attributes) {

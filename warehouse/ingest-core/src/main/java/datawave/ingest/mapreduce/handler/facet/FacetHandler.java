@@ -3,7 +3,6 @@ package datawave.ingest.mapreduce.handler.facet;
 import com.clearspring.analytics.stream.cardinality.HyperLogLogPlus;
 import com.clearspring.analytics.stream.cardinality.ICardinality;
 import com.clearspring.analytics.stream.frequency.CountMinSketch;
-import com.clearspring.analytics.util.Lists;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashMultimap;
@@ -39,10 +38,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 public class FacetHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataTypeHandler<KEYIN,KEYOUT,VALUEOUT>, FacetedEstimator<RawRecordContainer> {
     
@@ -221,60 +217,92 @@ public class FacetHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataTypeHand
         final String shardDate = ShardIdFactory.getDateString(shardId);
         Text dateColumnQualifier = new Text(shardDate);
         
-        HyperLogLogPlus cardinality = new HyperLogLogPlus(10);
-        cardinality.offer(event.getId().toString());
-        
         Text cv = new Text(flatten(event.getVisibility()));
         
-        final HashTableFunction<KEYIN,KEYOUT,VALUEOUT> func = new HashTableFunction<>(contextWriter, context, facetHashTableName, facetHashThreshold,
-                        event.getDate());
-        Multimap<String,NormalizedContentInterface> eventFields = hashEventFields(fields, func);
+        // fields with a large number of values are hashed. See HashTableFunction for details
+        // @formatter:off
+        final HashTableFunction<KEYIN,KEYOUT,VALUEOUT> func = new HashTableFunction<>(
+                contextWriter, context, facetHashTableName, facetHashThreshold, event.getDate());
+        final Multimap<String,NormalizedContentInterface> eventFields = hashEventFields(fields, func);
+        // @formatter:on
         
-        Stream<String> eventFieldKeyStream = eventFields.keySet().stream().filter(new TokenPredicate());
-        if (fieldFilter != null) {
-            eventFieldKeyStream = eventFieldKeyStream.filter(fieldFilter);
-        }
-        Set<String> keySet = eventFieldKeyStream.collect(Collectors.toSet());
-        List<Set<String>> keySetList = Lists.newArrayList();
-        keySetList.add(keySet);
-        keySetList.add(keySet);
+        // filter out event fields that are generated as the result of tokenization.
+        // Stream<String> eventFieldKeyStream = eventFields.keySet().stream().filter(new TokenPredicate());
+        // if (fieldFilter != null) {
+        // eventFieldKeyStream = eventFieldKeyStream.filter(fieldFilter);
+        // }
+        // Set<String> keySet = eventFieldKeyStream.collect(Collectors.toSet());
+        // List<Set<String>> keySetList = Lists.newArrayList();
+        // keySetList.add(keySet);
+        // keySetList.add(keySet);
         
         long countWritten = 0;
         
-        Value sharedValue = new Value(cardinality.getBytes());
-        Multimap<BulkIngestKey,Value> results = ArrayListMultimap.create();
+        // the event id offered to the cardinality is a uid based on the 'EVENT_ID',
+        // so it's helpful to have that around for debugging when logging about the
+        // facet keys that are created.
+        String eventId = null;
+        if (log.isDebugEnabled()) {
+            StringBuilder b = new StringBuilder();
+            for (NormalizedContentInterface f : eventFields.get("EVENT_ID")) {
+                b.append(f.getEventFieldValue());
+            }
+            eventId = b.toString();
+        }
+        
+        // compute the cardinality based on the uid, this becomes the value shared
+        // across each facet row generated.
+        final HyperLogLogPlus cardinality = new HyperLogLogPlus(10);
+        cardinality.offer(event.getId().toString());
+        final Value sharedValue = new Value(cardinality.getBytes());
+        
+        final Multimap<BulkIngestKey,Value> results = ArrayListMultimap.create();
         
         for (String pivotFieldName : pivotMap.keySet()) {
-            Text reflexiveCf = createColumnFamily(pivotFieldName, pivotFieldName);
+            final Text reflexiveCf = createColumnFamily(pivotFieldName, pivotFieldName);
+            
             for (NormalizedContentInterface pivotTypes : eventFields.get(pivotFieldName)) {
                 if (HashTableFunction.isReduced(pivotTypes))
                     continue;
                 
+                // Generate the pivot entry.
+                // @formatter: off
+                final BulkIngestKey pivotIngestKey = generateFacetIngestKey(pivotTypes.getIndexedFieldValue(), pivotTypes.getIndexedFieldValue(),
+                                event.getDataType(), reflexiveCf, dateColumnQualifier, cv, event.getDate());
+                results.put(pivotIngestKey, sharedValue);
+                if (log.isDebugEnabled()) {
+                    log.debug("created BulkIngestKey (pivot): " + pivotIngestKey.getKey() + " for " + event.getId().toString() + " in "
+                                    + event.getRawFileName() + " event " + eventId);
+                }
+                // @formatter: on
+                
+                // Generate the facet entries.
                 for (String facetFieldName : pivotMap.get(pivotFieldName)) {
                     if (pivotFieldName.equals(facetFieldName))
                         continue;
                     
-                    Text generatedCf = createColumnFamily(pivotFieldName, facetFieldName);
-                    Text myCf = generatedCf;
+                    final Text generatedCf = createColumnFamily(pivotFieldName, facetFieldName);
                     
                     for (NormalizedContentInterface facetTypes : eventFields.get(facetFieldName)) {
+                        Text facetCf = new Text(generatedCf);
+                        
                         if (HashTableFunction.isReduced(facetTypes)) {
-                            myCf.append(HashTableFunction.FIELD_APPEND_BYTES, 0, HashTableFunction.FIELD_APPEND_BYTES.length);
+                            facetCf.append(HashTableFunction.FIELD_APPEND_BYTES, 0, HashTableFunction.FIELD_APPEND_BYTES.length);
                         }
                         
-                        Text row = createFieldValuePair(pivotTypes.getIndexedFieldValue(), facetTypes.getIndexedFieldValue(), event.getDataType());
-                        Key result = new Key(row, myCf, dateColumnQualifier, cv, event.getDate());
-                        results.put(new BulkIngestKey(facetTableName, result), sharedValue);
+                        // @formatter: off
+                        final BulkIngestKey facetIngestKey = generateFacetIngestKey(pivotTypes.getIndexedFieldValue(), facetTypes.getIndexedFieldValue(),
+                                        event.getDataType(), facetCf, dateColumnQualifier, cv, event.getDate());
+                        results.put(facetIngestKey, sharedValue);
+                        if (log.isDebugEnabled()) {
+                            log.debug("created BulkIngestKey (facet): " + facetIngestKey.getKey() + " for " + event.getId().toString() + " in "
+                                            + event.getRawFileName() + " event " + eventId);
+                        }
+                        // @formatter: on
                         
                         countWritten++;
                     }
-                    
-                    myCf = generatedCf;
                 }
-                
-                Text row = createFieldValuePair(pivotTypes.getIndexedFieldValue(), pivotTypes.getIndexedFieldValue(), event.getDataType());
-                Key result = new Key(row, reflexiveCf, dateColumnQualifier, cv, event.getDate());
-                results.put(new BulkIngestKey(facetTableName, result), sharedValue);
             }
         }
         
@@ -287,6 +315,16 @@ public class FacetHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataTypeHand
         return countWritten;
     }
     
+    /**
+     * Apply the supplied HashTableFunction to the fields provided. The results are collected and returned. This is commonly used where there are a large number
+     * of values for a field.
+     *
+     * @param fields
+     *            The fields to process
+     * @param func
+     *            The function to apply
+     * @return The modified set of fields after hashing.
+     */
     private Multimap<String,NormalizedContentInterface> hashEventFields(Multimap<String,NormalizedContentInterface> fields,
                     HashTableFunction<KEYIN,KEYOUT,VALUEOUT> func) {
         Multimap<String,NormalizedContentInterface> eventFields = HashMultimap.create();
@@ -297,6 +335,32 @@ public class FacetHandler<KEYIN,KEYOUT,VALUEOUT> implements ExtendedDataTypeHand
             }
         }
         return eventFields;
+    }
+    
+    /**
+     * Generate the entry for the facet table in the form of a BulkIngestKey
+     *
+     * @param pivotFieldValue
+     *            the value of the pivot field - actual value depends on facet type
+     * @param facetFieldValue
+     *            the value of the facet field - actual value depends on facet type
+     * @param dataType
+     *            the datatype for the data from which the facet was generated
+     * @param cf
+     *            the column family for the facet. This encodes the field names the facet originated from, possibly modified if we need to hash the field
+     *            values.
+     * @param dateCq
+     *            the date for the column qualifier.
+     * @param cv
+     *            the column visibility for this facet entry.
+     * @param ts
+     *            the timestamp use for the facet key
+     * @return A bulk ingest key for this facet entry.
+     */
+    public BulkIngestKey generateFacetIngestKey(String pivotFieldValue, String facetFieldValue, Type dataType, Text cf, Text dateCq, Text cv, long ts) {
+        final Text facetRow = createFieldValuePair(pivotFieldValue, facetFieldValue, dataType);
+        final Key facetResult = new Key(facetRow, cf, dateCq, cv, ts);
+        return new BulkIngestKey(facetTableName, facetResult);
     }
     
     /**
