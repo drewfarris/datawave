@@ -40,6 +40,7 @@ import datawave.ingest.mapreduce.handler.shard.AbstractColumnBasedHandler;
 import datawave.ingest.mapreduce.job.BulkIngestKey;
 import datawave.ingest.mapreduce.job.writer.LiveContextWriter;
 import datawave.ingest.table.config.TableConfigHelper;
+import datawave.marking.MarkingFunctions;
 import datawave.query.iterator.QueryOptions;
 import datawave.query.map.SimpleQueryGeometryHandler;
 import datawave.security.authorization.DatawavePrincipal;
@@ -48,7 +49,6 @@ import datawave.security.util.AuthorizationsUtil;
 import datawave.webservice.common.connection.AccumuloConnectionFactory;
 import datawave.webservice.common.connection.AccumuloConnectionFactory.Priority;
 import datawave.webservice.common.logging.ThreadConfigurableLogger;
-import datawave.webservice.common.logging.ThreadLocalLogLevel;
 import datawave.webservice.query.Query;
 import datawave.webservice.query.QueryImpl;
 import datawave.webservice.query.QueryImpl.Parameter;
@@ -135,6 +135,7 @@ public class ShardTableQueryMetricHandler extends BaseQueryMetricHandler<QueryMe
     
     private Collection<String> connectorAuthorizationCollection = null;
     private String connectorAuthorizations = null;
+    private MarkingFunctions markingFunctions = null;
     
     @SuppressWarnings("FieldCanBeLocal")
     private final String JOB_ID = "job_201109071404_1";
@@ -162,6 +163,7 @@ public class ShardTableQueryMetricHandler extends BaseQueryMetricHandler<QueryMe
         String accumuloPassword = conf.get("AccumuloRecordWriter.password");
         byte[] encodedAccumuloPassword = Base64.encodeBase64(accumuloPassword.getBytes());
         conf.set("AccumuloRecordWriter.password", new String(encodedAccumuloPassword));
+        markingFunctions = MarkingFunctions.Factory.createMarkingFunctions();
     }
     
     @PostConstruct
@@ -280,11 +282,17 @@ public class ShardTableQueryMetricHandler extends BaseQueryMetricHandler<QueryMe
         event.setConf(this.conf);
         event.setDataType(type);
         event.setDate(storedQueryMetric.getCreateDate().getTime());
-        // get security marking set in the config, otherwise default to PUBLIC
-        if (visibilityString != null) {
-            event.setVisibility(new ColumnVisibility(visibilityString));
-        } else {
+        // get security markings from metric, otherwise default to PUBLIC
+        Map<String,String> markings = updatedQueryMetric.getMarkings();
+        if (markingFunctions == null || markings == null || markings.isEmpty()) {
             event.setVisibility(new ColumnVisibility(DEFAULT_SECURITY_MARKING));
+        } else {
+            try {
+                event.setVisibility(this.markingFunctions.translateToColumnVisibility(markings));
+            } catch (Exception e) {
+                log.error(e.getMessage(), e);
+                event.setVisibility(new ColumnVisibility(DEFAULT_SECURITY_MARKING));
+            }
         }
         event.setAuxData(storedQueryMetric);
         event.setRawRecordNumber(1000L);
@@ -640,7 +648,7 @@ public class ShardTableQueryMetricHandler extends BaseQueryMetricHandler<QueryMe
         try {
             QueryMetric m = new QueryMetric();
             List<FieldBase> field = event.getFields();
-            
+            m.setMarkings(event.getMarkings());
             TreeMap<Long,PageMetric> pageMetrics = Maps.newTreeMap();
             
             for (FieldBase f : field) {
@@ -710,16 +718,16 @@ public class ShardTableQueryMetricHandler extends BaseQueryMetricHandler<QueryMe
                         String[] parts = StringUtils.split(fieldValue, "/");
                         PageMetric pageMetric = null;
                         if (parts.length == 8) {
-                            pageMetric = new PageMetric(Long.valueOf(parts[0]), Long.valueOf(parts[1]), Long.valueOf(parts[2]), Long.valueOf(parts[3]),
-                                            Long.valueOf(parts[4]), Long.valueOf(parts[5]), Long.valueOf(parts[6]), Long.valueOf(parts[7]));
+                            pageMetric = new PageMetric(Long.parseLong(parts[0]), Long.parseLong(parts[1]), Long.parseLong(parts[2]), Long.parseLong(parts[3]),
+                                            Long.parseLong(parts[4]), Long.parseLong(parts[5]), Long.parseLong(parts[6]), Long.parseLong(parts[7]));
                         } else if (parts.length == 7) {
-                            pageMetric = new PageMetric(Long.valueOf(parts[0]), Long.valueOf(parts[1]), Long.valueOf(parts[2]), Long.valueOf(parts[3]),
-                                            Long.valueOf(parts[4]), Long.valueOf(parts[5]), Long.valueOf(parts[6]));
+                            pageMetric = new PageMetric(Long.parseLong(parts[0]), Long.parseLong(parts[1]), Long.parseLong(parts[2]), Long.parseLong(parts[3]),
+                                            Long.parseLong(parts[4]), Long.parseLong(parts[5]), Long.parseLong(parts[6]));
                         } else if (parts.length == 5) {
-                            pageMetric = new PageMetric(Long.valueOf(parts[0]), Long.valueOf(parts[1]), Long.valueOf(parts[2]), Long.valueOf(parts[3]),
-                                            Long.valueOf(parts[4]), 0l, 0l);
+                            pageMetric = new PageMetric(Long.parseLong(parts[0]), Long.parseLong(parts[1]), Long.parseLong(parts[2]), Long.parseLong(parts[3]),
+                                            Long.parseLong(parts[4]), 0l, 0l);
                         } else if (parts.length == 2) {
-                            pageMetric = new PageMetric(Long.valueOf(parts[0]), Long.valueOf(parts[1]), 0l, 0l);
+                            pageMetric = new PageMetric(Long.parseLong(parts[0]), Long.parseLong(parts[1]), 0l, 0l);
                         }
                         
                         if (pageMetric != null)
@@ -799,6 +807,7 @@ public class ShardTableQueryMetricHandler extends BaseQueryMetricHandler<QueryMe
             
             return m;
         } catch (Exception e) {
+            log.warn("Unexpected error creating query metric. Returning null", e);
             return null;
         }
     }
@@ -856,7 +865,7 @@ public class ShardTableQueryMetricHandler extends BaseQueryMetricHandler<QueryMe
     
     private void enableLogs(boolean enable) {
         if (enable) {
-            ThreadLocalLogLevel.clear();
+            ThreadConfigurableLogger.clearThreadLevels();
         } else {
             // All loggers that are encountered in the call chain during metrics calls should be included here.
             // If you need to add a logger name here, you also need to change the Logger declaration where that Logger is instantiated
@@ -865,24 +874,24 @@ public class ShardTableQueryMetricHandler extends BaseQueryMetricHandler<QueryMe
             // to
             // Logger log = ThreadConfigurableLogger.getLogger(MyClass.class);
             
-            ThreadLocalLogLevel.setLevel("datawave.query.index.lookup.RangeStream", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.query.metrics.ShardTableQueryMetricHandler", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.query.planner.DefaultQueryPlanner", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.query.planner.ThreadedRangeBundlerIterator", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.query.scheduler.SequentialScheduler", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.query.tables.ShardQueryLogic", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.query.metrics.ShardTableQueryMetricHandler", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.query.jexl.visitors.QueryModelVisitor", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.query.jexl.visitors.ExpandMultiNormalizedTerms", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.query.jexl.lookups.LookupBoundedRangeForTerms", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.query.jexl.visitors.RangeConjunctionRebuildingVisitor", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.query.index.lookup.RangeStream", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.query.metrics.ShardTableQueryMetricHandler", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.query.planner.DefaultQueryPlanner", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.query.planner.ThreadedRangeBundlerIterator", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.query.scheduler.SequentialScheduler", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.query.tables.ShardQueryLogic", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.query.metrics.ShardTableQueryMetricHandler", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.query.jexl.visitors.QueryModelVisitor", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.query.jexl.visitors.ExpandMultiNormalizedTerms", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.query.jexl.lookups.LookupBoundedRangeForTerms", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.query.jexl.visitors.RangeConjunctionRebuildingVisitor", Level.ERROR);
             
-            ThreadLocalLogLevel.setLevel("datawave.ingest.data.TypeRegistry", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.ingest.data.config.ingest.BaseIngestHelper", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.ingest.mapreduce.handler.shard.AbstractColumnBasedHandler", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.ingest.mapreduce.handler.shard.ShardedDataTypeHandler", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.ingest.util.RegionTimer", Level.ERROR);
-            ThreadLocalLogLevel.setLevel("datawave.ingest.data.Event", Level.OFF);
+            ThreadConfigurableLogger.setLevelForThread("datawave.ingest.data.TypeRegistry", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.ingest.data.config.ingest.BaseIngestHelper", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.ingest.mapreduce.handler.shard.AbstractColumnBasedHandler", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.ingest.mapreduce.handler.shard.ShardedDataTypeHandler", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.ingest.util.RegionTimer", Level.ERROR);
+            ThreadConfigurableLogger.setLevelForThread("datawave.ingest.data.Event", Level.OFF);
         }
     }
     

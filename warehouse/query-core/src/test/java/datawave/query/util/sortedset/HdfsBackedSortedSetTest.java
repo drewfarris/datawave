@@ -1,6 +1,5 @@
 package datawave.query.util.sortedset;
 
-import com.google.common.io.Files;
 import datawave.query.iterator.ivarator.IvaratorCacheDir;
 import datawave.query.iterator.ivarator.IvaratorCacheDirConfig;
 import org.apache.hadoop.conf.Configuration;
@@ -9,7 +8,9 @@ import org.apache.hadoop.fs.FsStatus;
 import org.apache.hadoop.fs.LocalFileSystem;
 import org.apache.hadoop.fs.Path;
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -19,10 +20,12 @@ import java.util.List;
 
 public class HdfsBackedSortedSetTest {
     
+    @Rule
+    public TemporaryFolder temporaryFolder = new TemporaryFolder();
+    
     @Test
     public void persistReloadTest() throws Exception {
-        File tempDir = Files.createTempDir();
-        tempDir.deleteOnExit();
+        File tempDir = temporaryFolder.newFolder();
         
         File smallDir = new File(tempDir, "small");
         Assert.assertTrue(smallDir.mkdirs());
@@ -45,7 +48,7 @@ public class HdfsBackedSortedSetTest {
         
         String uniquePath = "blah";
         
-        HdfsBackedSortedSet<String> sortedSet = new HdfsBackedSortedSet<>(ivaratorCacheDirs, uniquePath, 9999, 2);
+        HdfsBackedSortedSet<String> sortedSet = new HdfsBackedSortedSet<>(ivaratorCacheDirs, uniquePath, 9999, 2, new FileSortedSet.PersistOptions());
         
         // Add an entry to the sorted set
         String someTestString = "some test string";
@@ -69,7 +72,7 @@ public class HdfsBackedSortedSetTest {
         Assert.assertTrue(fileStatuses[0].getPath().getName().startsWith("SortedSet"));
         
         // Now make sure reloading an ivarator cache dir works
-        HdfsBackedSortedSet<String> reloadedSortedSet = new HdfsBackedSortedSet<>(ivaratorCacheDirs, uniquePath, 9999, 2);
+        HdfsBackedSortedSet<String> reloadedSortedSet = new HdfsBackedSortedSet<>(ivaratorCacheDirs, uniquePath, 9999, 2, new FileSortedSet.PersistOptions());
         
         Assert.assertEquals(1, reloadedSortedSet.size());
         Assert.assertEquals(someTestString, reloadedSortedSet.first());
@@ -77,8 +80,7 @@ public class HdfsBackedSortedSetTest {
     
     @Test
     public void persistCompactReloadTest() throws Exception {
-        File tempDir = Files.createTempDir();
-        tempDir.deleteOnExit();
+        File tempDir = temporaryFolder.newFolder();
         
         File[] dirs = new File[] {new File(tempDir, "first"), new File(tempDir, "second"), new File(tempDir, "third")};
         
@@ -105,7 +107,8 @@ public class HdfsBackedSortedSetTest {
                 ivaratorCacheDirs.add(new IvaratorCacheDir(new IvaratorCacheDirConfig(dir.toURI().toString(), 1), fs, dir.toURI().toString()));
         }
         
-        HdfsBackedSortedSet<String> firstSortedSet = new HdfsBackedSortedSet<>(Collections.singletonList(ivaratorCacheDirs.get(0)), uniquePath, 9999, 2);
+        HdfsBackedSortedSet<String> firstSortedSet = new HdfsBackedSortedSet<>(Collections.singletonList(ivaratorCacheDirs.get(0)), uniquePath, 9999, 2,
+                        new FileSortedSet.PersistOptions());
         
         // Add an entry to the first sorted set
         String someTestString = "some test string";
@@ -114,7 +117,8 @@ public class HdfsBackedSortedSetTest {
         // persist the sorted set
         firstSortedSet.persist();
         
-        HdfsBackedSortedSet<String> thirdSortedSet = new HdfsBackedSortedSet<>(Collections.singletonList(ivaratorCacheDirs.get(2)), uniquePath, 9999, 2);
+        HdfsBackedSortedSet<String> thirdSortedSet = new HdfsBackedSortedSet<>(Collections.singletonList(ivaratorCacheDirs.get(2)), uniquePath, 9999, 2,
+                        new FileSortedSet.PersistOptions());
         
         // Add an entry to the third sorted set
         String anotherTestString = "another test string";
@@ -142,7 +146,7 @@ public class HdfsBackedSortedSetTest {
         Assert.assertTrue(fileStatuses[0].getPath().getName().startsWith("SortedSet"));
         
         // Now make sure reloading an ivarator cache dir works, and set maxOpenFiles to 1 so that we compact during the next persist
-        HdfsBackedSortedSet<String> reloadedSortedSet = new HdfsBackedSortedSet<>(ivaratorCacheDirs, uniquePath, 1, 2);
+        HdfsBackedSortedSet<String> reloadedSortedSet = new HdfsBackedSortedSet<>(ivaratorCacheDirs, uniquePath, 1, 2, new FileSortedSet.PersistOptions());
         
         // Ensure that we have 2 entries total
         Assert.assertEquals(2, reloadedSortedSet.size());
@@ -177,7 +181,7 @@ public class HdfsBackedSortedSetTest {
         Assert.assertTrue(fileStatuses[0].getPath().getName().startsWith("SortedSet"));
         
         // Finally, make sure that the compacted data can be reloaded
-        HdfsBackedSortedSet<String> compactedSortedSet = new HdfsBackedSortedSet<>(ivaratorCacheDirs, uniquePath, 9999, 2);
+        HdfsBackedSortedSet<String> compactedSortedSet = new HdfsBackedSortedSet<>(ivaratorCacheDirs, uniquePath, 9999, 2, new FileSortedSet.PersistOptions());
         
         // Ensure that we have 3 entries total
         Assert.assertEquals(3, compactedSortedSet.size());

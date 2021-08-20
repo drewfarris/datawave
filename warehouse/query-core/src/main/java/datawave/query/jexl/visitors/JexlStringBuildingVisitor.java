@@ -1,16 +1,10 @@
 package datawave.query.jexl.visitors;
 
-import java.text.MessageFormat;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Set;
-import java.util.TreeSet;
-
-import datawave.query.jexl.JexlASTHelper;
+import com.google.common.collect.Sets;
 import datawave.query.exceptions.DatawaveFatalQueryException;
+import datawave.query.jexl.JexlASTHelper;
 import datawave.webservice.query.exception.DatawaveErrorCode;
 import datawave.webservice.query.exception.QueryException;
-
 import org.apache.commons.jexl2.parser.ASTAdditiveNode;
 import org.apache.commons.jexl2.parser.ASTAdditiveOperator;
 import org.apache.commons.jexl2.parser.ASTAndNode;
@@ -40,11 +34,16 @@ import org.apache.commons.jexl2.parser.ASTReferenceExpression;
 import org.apache.commons.jexl2.parser.ASTSizeMethod;
 import org.apache.commons.jexl2.parser.ASTStringLiteral;
 import org.apache.commons.jexl2.parser.ASTTrueNode;
+import org.apache.commons.jexl2.parser.ASTUnaryMinusNode;
 import org.apache.commons.jexl2.parser.JexlNode;
 import org.apache.commons.jexl2.parser.ParseException;
 import org.apache.log4j.Logger;
 
-import com.google.common.collect.Sets;
+import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * A Jexl visitor which builds an equivalent Jexl query.
@@ -424,7 +423,6 @@ public class JexlStringBuildingVisitor extends BaseVisitor {
                 builder.append(literal.substring(begin, index));
                 builder.append(BACKSLASH).append(STRING_QUOTE);
                 begin = index + 1;
-                literal.substring(index + 1, literal.length());
                 index = literal.indexOf(STRING_QUOTE, begin);
             }
             
@@ -633,6 +631,14 @@ public class JexlStringBuildingVisitor extends BaseVisitor {
         if (requiresParens) {
             sb.append(')');
         }
+        return sb;
+    }
+    
+    @Override
+    public Object visit(ASTUnaryMinusNode node, Object data) {
+        StringBuilder sb = (StringBuilder) data;
+        sb.append("-");
+        node.childrenAccept(this, sb);
         return sb;
     }
 }

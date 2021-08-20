@@ -15,7 +15,7 @@ DW_ACCUMULO_SERVICE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 # Zookeeper config
 
 # You may override DW_ZOOKEEPER_DIST_URI in your env ahead of time, and set as file:///path/to/file.tar.gz for local tarball, if needed
-DW_ZOOKEEPER_DIST_URI="${DW_ZOOKEEPER_DIST_URI:-http://archive.cloudera.com/cdh5/cdh/5/zookeeper-3.4.5-cdh5.16.2.tar.gz}"
+DW_ZOOKEEPER_DIST_URI="${DW_ZOOKEEPER_DIST_URI:-https://archive.apache.org/dist/zookeeper/zookeeper-3.4.5/zookeeper-3.4.5.tar.gz}"
 DW_ZOOKEEPER_DIST="$( downloadTarball "${DW_ZOOKEEPER_DIST_URI}" "${DW_ACCUMULO_SERVICE_DIR}" && echo "${tarball}" )"
 DW_ZOOKEEPER_BASEDIR="zookeeper-install"
 DW_ZOOKEEPER_SYMLINK="zookeeper"
@@ -32,7 +32,7 @@ maxClientCnxns=100"
 
 # You may override DW_ACCUMULO_DIST_URI in your env ahead of time, and set as file:///path/to/file.tar.gz for local tarball, if needed
 
-DW_ACCUMULO_DIST_URI="${DW_ACCUMULO_DIST_URI:-http://apache.cs.utah.edu/accumulo/1.9.3/accumulo-1.9.3-bin.tar.gz}"
+DW_ACCUMULO_DIST_URI="${DW_ACCUMULO_DIST_URI:-https://raw.githubusercontent.com/brianloss/maven_repo/files/accumulo-1.9.3-hadoop3-bin.tar.gz}"
 DW_ACCUMULO_DIST="$( downloadTarball "${DW_ACCUMULO_DIST_URI}" "${DW_ACCUMULO_SERVICE_DIR}" && echo "${tarball}" )"
 DW_ACCUMULO_BASEDIR="accumulo-install"
 DW_ACCUMULO_SYMLINK="accumulo"
@@ -256,4 +256,21 @@ function accumuloPidList() {
    if [[ -n "${DW_ACCUMULO_PID_LIST}" || -n "${DW_ZOOKEEPER_PID_LIST}" ]] ; then
       echo "${DW_ACCUMULO_PID_LIST} ${DW_ZOOKEEPER_PID_LIST}"
    fi
+}
+
+function accumuloDisplayBinaryInfo() {
+  echo "Source: ${DW_ACCUMULO_DIST_URI}"
+  local tarballName="$(basename "$DW_ACCUMULO_DIST_URI")"
+  if [[ -f "${DW_ACCUMULO_SERVICE_DIR}/${tarballName}" ]]; then
+     echo " Local: ${DW_ACCUMULO_SERVICE_DIR}/${tarballName}"
+  else
+     echo " Local: Not loaded"
+  fi
+  echo "Source: ${DW_ZOOKEEPER_DIST_URI}"
+  tarballName="$(basename "$DW_ZOOKEEPER_DIST_URI")"
+  if [[ -f "${DW_ACCUMULO_SERVICE_DIR}/${tarballName}" ]]; then
+     echo " Local: ${DW_ACCUMULO_SERVICE_DIR}/${tarballName}"
+  else
+     echo " Local: Not loaded"
+  fi
 }
