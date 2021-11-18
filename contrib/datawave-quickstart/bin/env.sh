@@ -55,6 +55,7 @@ if jdkIsConfigured ; then
   register hadoop   # $DW_CLOUD_PLUGINS/hadoop/bootstrap.sh
   register accumulo # $DW_CLOUD_PLUGINS/accumulo/bootstrap.sh
   register datawave # $DW_CLOUD_PLUGINS/datawave/bootstrap.sh
+  register spark    # $DW_CLOUD_PLUGINS/spark/bootstrap.sh
 fi
 
 # You may add/remove lines above to affect which services are activated in your environment
