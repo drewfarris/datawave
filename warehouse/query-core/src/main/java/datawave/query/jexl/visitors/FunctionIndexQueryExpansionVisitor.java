@@ -2,9 +2,11 @@ package datawave.query.jexl.visitors;
 
 import datawave.query.config.ShardQueryConfiguration;
 import datawave.query.jexl.JexlNodeFactory;
+import datawave.query.jexl.functions.ContentFunctionsDescriptor;
 import datawave.query.jexl.functions.JexlFunctionArgumentDescriptorFactory;
 import datawave.query.jexl.functions.arguments.JexlArgumentDescriptor;
 import datawave.query.jexl.functions.arguments.RebuildingJexlArgumentDescriptor;
+import datawave.query.jexl.nodes.QueryPropertyMarker;
 import datawave.query.util.DateIndexHelper;
 import datawave.query.util.MetadataHelper;
 import org.apache.commons.jexl2.parser.ASTAndNode;
@@ -21,6 +23,8 @@ import org.apache.commons.jexl2.parser.ASTTrueNode;
 import org.apache.commons.jexl2.parser.JexlNode;
 
 import java.util.Arrays;
+
+import static datawave.query.jexl.functions.ContentFunctionsDescriptor.ContentJexlArgumentDescriptor.distributeFunctionIntoIndexQuery;
 
 /**
  * Visits an JexlNode tree, and expand the functions to be AND'ed with their index query equivalents. Note that the functions are left in the final query to
@@ -103,8 +107,12 @@ public class FunctionIndexQueryExpansionVisitor extends RebuildingVisitor {
         if (!evaluationOnly) {
             JexlNode indexQuery = desc.getIndexQuery(config, this.metadataHelper, this.dateIndexHelper, this.config.getDatatypeFilter());
             if (indexQuery != null && !(indexQuery instanceof ASTTrueNode)) {
-                // now link em up
-                return JexlNodeFactory.createAndNode(Arrays.asList(node, indexQuery));
+                if (desc instanceof ContentFunctionsDescriptor.ContentJexlArgumentDescriptor) {
+                    return distributeFunctionIntoIndexQuery(node, indexQuery);
+                } else {
+                    // now link em up
+                    return JexlNodeFactory.createAndNode(Arrays.asList(node, indexQuery));
+                }
             }
         }
         
@@ -114,12 +122,12 @@ public class FunctionIndexQueryExpansionVisitor extends RebuildingVisitor {
     @Override
     public Object visit(ASTAndNode node, Object data) {
         // if we know from a parent that this is evaluation only, pass that forward. if we don't know, check.
-        return super.visit(node, (data instanceof Boolean && (Boolean) data) || ASTEvaluationOnly.instanceOf(node));
+        return super.visit(node, (data instanceof Boolean && (Boolean) data) || QueryPropertyMarker.findInstance(node).isType(ASTEvaluationOnly.class));
     }
     
     @Override
     public Object visit(ASTReference node, Object data) {
         // if we know from a parent that this is evaluation only, pass that forward. if we don't know, check.
-        return super.visit(node, (data instanceof Boolean && (Boolean) data) || ASTEvaluationOnly.instanceOf(node));
+        return super.visit(node, (data instanceof Boolean && (Boolean) data) || QueryPropertyMarker.findInstance(node).isType(ASTEvaluationOnly.class));
     }
 }

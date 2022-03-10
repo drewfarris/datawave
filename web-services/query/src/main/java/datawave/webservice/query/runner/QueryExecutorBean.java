@@ -260,7 +260,7 @@ public class QueryExecutorBean implements QueryExecutor {
     private static class QueryData {
         QueryLogic<?> logic = null;
         Principal p = null;
-        Set<String> proxyServers = null;
+        Collection<String> proxyServers = null;
         String userDn = null;
         String userid = null;
         List<String> dnList = null;
@@ -1501,7 +1501,7 @@ public class QueryExecutorBean implements QueryExecutor {
     @Interceptors({ResponseInterceptor.class, RequiredInterceptor.class})
     @Override
     @Timed(name = "dw.query.lookupContentUUIDBatch", absolute = true)
-    public <T> T lookupContentByUUIDBatch(MultivaluedMap<String,String> queryParameters, HttpHeaders httpHeaders) {
+    public <T> T lookupContentByUUIDBatch(MultivaluedMap<String,String> queryParameters, @Required("httpHeaders") @Context HttpHeaders httpHeaders) {
         if (!queryParameters.containsKey("uuidPairs")) {
             throw new BadRequestException(new IllegalArgumentException("uuidPairs missing from query parameters"), new VoidResponse());
         }
