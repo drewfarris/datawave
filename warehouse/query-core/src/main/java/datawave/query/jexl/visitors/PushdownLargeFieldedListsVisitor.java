@@ -340,18 +340,26 @@ public class PushdownLargeFieldedListsVisitor extends RebuildingVisitor {
             extension = codec.getDefaultExtension();
         }
         int fstCount = config.getFstCount().incrementAndGet();
-        Path fstFile = new Path(fstHdfsUri, "PushdownLargeFileFst." + fstCount + ".fst" + extension);
-        
-        OutputStream fstFileOut = new BufferedOutputStream(fs.create(fstFile, false));
+
+        Path fstMetaFile = new Path(fstHdfsUri, "PushdownLargeFileFst." + fstCount + ".fstmeta" + extension);
+        OutputStream fstMetaOut = new BufferedOutputStream(fs.create(fstMetaFile, false));
         if (codec != null) {
-            fstFileOut = codec.createOutputStream(fstFileOut);
+            fstMetaOut = codec.createOutputStream(fstMetaOut);
         }
+
+        Path fstDataFile = new Path(fstHdfsUri, "PushdownLargeFileFst." + fstCount + ".fstdata" + extension);
+        OutputStream fstDataOut = new BufferedOutputStream(fs.create(fstDataFile, false));
+        if (codec != null) {
+            fstDataOut = codec.createOutputStream(fstDataOut);
+        }
+
+        OutputStreamDataOutput fstMetaStream = new OutputStreamDataOutput(fstMetaOut);
+        OutputStreamDataOutput fstDataStream = new OutputStreamDataOutput(fstDataOut);
+
+        fst.save(fstMetaStream, fstDataStream);
+        fstDataStream.close();
         
-        OutputStreamDataOutput outStream = new OutputStreamDataOutput(fstFileOut);
-        fst.save(outStream);
-        outStream.close();
-        
-        return fstFile.toUri();
+        return fstDataFile.toUri();
     }
     
 }

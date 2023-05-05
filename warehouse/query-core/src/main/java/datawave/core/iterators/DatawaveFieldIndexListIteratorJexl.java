@@ -17,6 +17,7 @@ import org.apache.lucene.store.InputStreamDataInput;
 import org.apache.lucene.util.IntsRef;
 import org.apache.lucene.util.IntsRefBuilder;
 import org.apache.lucene.util.fst.FST;
+import org.apache.lucene.util.fst.FSTCompiler;
 import org.apache.lucene.util.fst.NoOutputs;
 import org.apache.lucene.util.fst.Outputs;
 import org.apache.lucene.util.fst.Util;
@@ -197,15 +198,22 @@ public class DatawaveFieldIndexListIteratorJexl extends DatawaveFieldIndexCachin
         final Outputs<Object> outputs = NoOutputs.getSingleton();
         
         // create the FST from the values
-        org.apache.lucene.util.fst.Builder<Object> fstBuilder = new org.apache.lucene.util.fst.Builder<>(inputType, minSuffixCount1, minSuffixCount2,
-                        doShareSuffix, doShareNonSingletonNodes, shareMaxTailLength, outputs, allowArrayArcs, bytesPageBits);
-        
+        FSTCompiler<Object> fstBuilder = new FSTCompiler.Builder<>(inputType, outputs)
+                .minSuffixCount1(minSuffixCount1)
+                .minSuffixCount2(minSuffixCount2)
+                .shouldShareSuffix(doShareSuffix)
+                .shouldShareNonSingletonNodes(doShareNonSingletonNodes)
+                .shareMaxTailLength(shareMaxTailLength)
+                .allowFixedLengthArcs(allowArrayArcs)
+                .bytesPageBits(bytesPageBits)
+                .build();
+
         for (String value : values) {
             Util.toUTF16(value, irBuilder);
             final IntsRef scratchInt = irBuilder.get();
             fstBuilder.add(scratchInt, outputs.getNoOutput());
         }
-        return fstBuilder.finish();
+        return fstBuilder.compile();
     }
     
     /** Utility class to load one instance of any FST per classloader */
@@ -219,21 +227,21 @@ public class DatawaveFieldIndexListIteratorJexl extends DatawaveFieldIndexCachin
             return get(fstfile, hdfsFileCompressionCodec, hdfsFileSystem.getFileSystem(fstfile.toUri()));
         }
         
-        public static synchronized FST<Object> get(Path fstfile, String compressedCodec, FileSystem fs) throws IOException {
-            if (fstfile == null)
+        public static synchronized FST<Object> get(Path fstDatafile, String compressedCodec, FileSystem fs) throws IOException {
+            if (fstDatafile == null)
                 throw new NullPointerException("input fst key was null");
-            FST<Object> fst = fstCache.get(fstfile);
+            FST<Object> fst = fstCache.get(fstDatafile);
             if (fst != null) {
                 return fst;
             }
             
             // Attempt to load fst from HDFS
-            fst = loadFSTFromFile(fstfile, compressedCodec, fs);
-            fstCache.put(fstfile, fst);
+            fst = loadFSTFromFile(fstDatafile, compressedCodec, fs);
+            fstCache.put(fstDatafile, fst);
             return fst;
         }
         
-        public static FST<Object> loadFSTFromFile(Path filename, String compressionCodec, FileSystem fs) throws IOException {
+        public static FST<Object> loadFSTFromFile(Path fstDataFileName, String compressionCodec, FileSystem fs) throws IOException {
             
             CompressionCodec codec = null;
             if (compressionCodec != null) {
@@ -253,14 +261,21 @@ public class DatawaveFieldIndexListIteratorJexl extends DatawaveFieldIndexCachin
                     throw new IllegalArgumentException("Compression codec " + compressionCodec + " could not be accessed.", e);
                 }
             }
-            
-            InputStream fis = fs.open(filename);
+
+            InputStream fstMetaStream = fs.open(fstMetaFileName);
             if (codec != null) {
-                fis = codec.createInputStream(fis);
+                fstMetaStream = codec.createInputStream(fstMetaStream);
             }
+
+            InputStream fstDataStream = fs.open(fstDataFileName);
+            if (codec != null) {
+                fstDataStream = codec.createInputStream(fstDataStream);
+            }
+
             NoOutputs outputs = NoOutputs.getSingleton();
-            DataInput di = new InputStreamDataInput(fis);
-            return new FST<>(di, outputs);
+            DataInput fstMetaInput = new InputStreamDataInput(fstMetaStream);
+            DataInput fstDataInput = new InputStreamDataInput(fstDataStream);
+            return new FST<>(fstMetaInput, fstDataInput, outputs);
         }
         
         public static synchronized void clear(String file) {

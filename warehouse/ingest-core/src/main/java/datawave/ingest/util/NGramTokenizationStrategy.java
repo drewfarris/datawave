@@ -10,9 +10,9 @@ import datawave.ingest.mapreduce.MemberShipTest;
 import datawave.util.StringUtils;
 import org.apache.log4j.Logger;
 import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.classic.ClassicFilter;
 import org.apache.lucene.analysis.core.LowerCaseFilter;
 import org.apache.lucene.analysis.ngram.NGramTokenizer;
-import org.apache.lucene.analysis.standard.ClassicFilter;
 import org.apache.lucene.analysis.tokenattributes.CharTermAttribute;
 
 import com.google.common.hash.BloomFilter;
@@ -138,7 +138,7 @@ public class NGramTokenizationStrategy extends AbstractNGramTokenizationStrategy
                     tokenStream = new LowerCaseFilter(tokenStream);
                     tokenStream.addAttribute(CharTermAttribute.class);
                     
-                    // Reset the n-gram count
+                           // Reset the n-gram count
                     ngramCount = 0;
                     
                     // Increment the tokenizer and applied any generated n-grams
