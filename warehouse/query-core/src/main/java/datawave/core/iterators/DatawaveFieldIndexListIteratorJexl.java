@@ -3,6 +3,7 @@ package datawave.core.iterators;
 import datawave.core.iterators.filesystem.FileSystemCache;
 import datawave.query.Constants;
 import datawave.query.jexl.DatawaveArithmetic;
+import datawave.query.jexl.visitors.PushdownLargeFieldedListsVisitor.FstInfo;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.core.data.Value;
@@ -218,30 +219,31 @@ public class DatawaveFieldIndexListIteratorJexl extends DatawaveFieldIndexCachin
     
     /** Utility class to load one instance of any FST per classloader */
     public static class FSTManager {
-        static final Map<Path,FST<Object>> fstCache = new HashMap<>();
+        static final Map<FstInfo,FST<Object>> fstCache = new HashMap<>();
         
         static private FileSystemCache hdfsFileSystem;
         static private String hdfsFileCompressionCodec;
         
-        public static synchronized FST<Object> get(Path fstfile) throws IOException {
-            return get(fstfile, hdfsFileCompressionCodec, hdfsFileSystem.getFileSystem(fstfile.toUri()));
+        public static synchronized FST<Object> get(FstInfo fstInfo) throws IOException {
+            return get(fstInfo, hdfsFileCompressionCodec, hdfsFileSystem.getFileSystem(fstInfo.getFstDataUri()));
         }
         
-        public static synchronized FST<Object> get(Path fstDatafile, String compressedCodec, FileSystem fs) throws IOException {
-            if (fstDatafile == null)
+        public static synchronized FST<Object> get(FstInfo fstInfo, String compressedCodec, FileSystem fs) throws IOException {
+            if (fstInfo == null)
                 throw new NullPointerException("input fst key was null");
-            FST<Object> fst = fstCache.get(fstDatafile);
+
+            FST<Object> fst = fstCache.get(fstInfo);
             if (fst != null) {
                 return fst;
             }
             
             // Attempt to load fst from HDFS
-            fst = loadFSTFromFile(fstDatafile, compressedCodec, fs);
-            fstCache.put(fstDatafile, fst);
+            fst = loadFSTFromFile(fstInfo, compressedCodec, fs);
+            fstCache.put(fstInfo, fst);
             return fst;
         }
         
-        public static FST<Object> loadFSTFromFile(Path fstDataFileName, String compressionCodec, FileSystem fs) throws IOException {
+        public static FST<Object> loadFSTFromFile(FstInfo fstInfo, String compressionCodec, FileSystem fs) throws IOException {
             
             CompressionCodec codec = null;
             if (compressionCodec != null) {
@@ -262,12 +264,12 @@ public class DatawaveFieldIndexListIteratorJexl extends DatawaveFieldIndexCachin
                 }
             }
 
-            InputStream fstMetaStream = fs.open(fstMetaFileName);
+            InputStream fstMetaStream = fs.open(new Path(fstInfo.getFstMetaUri()));
             if (codec != null) {
                 fstMetaStream = codec.createInputStream(fstMetaStream);
             }
 
-            InputStream fstDataStream = fs.open(fstDataFileName);
+            InputStream fstDataStream = fs.open(new Path(fstInfo.getFstDataUri()));
             if (codec != null) {
                 fstDataStream = codec.createInputStream(fstDataStream);
             }

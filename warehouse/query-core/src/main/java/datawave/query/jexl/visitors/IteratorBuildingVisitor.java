@@ -1159,8 +1159,8 @@ public class IteratorBuildingVisitor extends BaseVisitor {
                     // cache these values for use during Jexl Evaluation
                     if (exceededOrEvaluationCache != null)
                         exceededOrEvaluationCache.put(id, values);
-                } else if (params.getFstURI() != null) {
-                    URI fstUri = new URI(params.getFstURI());
+                } else if (params.getFstInfoParam() != null) {
+                    URI fstUri = new URI(params.getFstInfoParam());
                     FST fst;
                     // only recompute this if not already set since this is potentially expensive
                     if (exceededOrEvaluationCache.containsKey(id)) {

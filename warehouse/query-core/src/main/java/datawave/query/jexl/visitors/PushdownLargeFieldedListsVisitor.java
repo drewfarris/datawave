@@ -35,14 +35,8 @@ import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.SortedSet;
-import java.util.TreeMap;
-import java.util.TreeSet;
+import java.net.URISyntaxException;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import static com.google.common.collect.Lists.newArrayList;
@@ -159,8 +153,8 @@ public class PushdownLargeFieldedListsVisitor extends RebuildingVisitor {
                 try {
                     // if we have an hdfs cache directory and if past the fst/list threshold, then create the fst/list and replace the list with an assignment
                     if (fstHdfsUri != null && (eqNodes.size() >= config.getMaxOrExpansionFstThreshold())) {
-                        URI fstPath = createFst(values);
-                        markers.add(ExceededOrThresholdMarkerJexlNode.createFromFstURI(field, fstPath));
+                        FstInfo fstInfo = createFst(values);
+                        markers.add(ExceededOrThresholdMarkerJexlNode.createFromFstURI(field, fstInfo));
                         eqNodes = null;
                     } else if (eqNodes.size() >= config.getMaxOrExpansionThreshold()) {
                         markers.add(ExceededOrThresholdMarkerJexlNode.createFromValues(field, values));
@@ -324,7 +318,7 @@ public class PushdownLargeFieldedListsVisitor extends RebuildingVisitor {
         }
     }
     
-    protected URI createFst(SortedSet<String> values) throws IOException, ClassNotFoundException, InstantiationException, IllegalAccessException {
+    protected FstInfo createFst(SortedSet<String> values) throws IOException, ClassNotFoundException, InstantiationException, IllegalAccessException {
         FST fst = DatawaveFieldIndexListIteratorJexl.getFST(values);
         
         // now serialize to our file system
@@ -357,9 +351,71 @@ public class PushdownLargeFieldedListsVisitor extends RebuildingVisitor {
         OutputStreamDataOutput fstDataStream = new OutputStreamDataOutput(fstDataOut);
 
         fst.save(fstMetaStream, fstDataStream);
+        fstMetaStream.close();
         fstDataStream.close();
+
         
-        return fstDataFile.toUri();
+        return new FstInfo(fstMetaFile.toUri(), fstDataFile.toUri());
     }
-    
+
+    public static class FstInfo {
+        private static final String sep = "%%";
+        final URI fstMetaUri;
+        final URI fstDataUri;
+
+        public FstInfo(URI fstMetaUri, URI fstDataUri) {
+            this.fstMetaUri = fstMetaUri;
+            this.fstDataUri = fstDataUri;
+        }
+
+        public FstInfo(String fstParamValue) throws IllegalArgumentException {
+            int pos = fstParamValue.indexOf(sep);
+            if (pos < 0) {
+                throw new IllegalArgumentException("Could not find delimiter in fstParamValue: " + fstParamValue);
+            }
+
+            try {
+                final String fstMetaUriString = fstParamValue.substring(0, pos);
+                final String fstDataUriString = fstParamValue.substring(pos + sep.length());
+                fstMetaUri = new URI(fstMetaUriString);
+                fstDataUri = new URI(fstDataUriString);
+            }
+            catch (URISyntaxException e) {
+                throw new IllegalArgumentException("Could not parse URIs from fstParamValue: " + fstParamValue, e);
+            }
+        }
+
+        public String getParamValue() {
+            return fstMetaUri.toString() + sep + fstDataUri.toString();
+        }
+
+        public URI getFstMetaUri() {
+            return fstMetaUri;
+        }
+
+        public URI getFstDataUri() {
+            return fstDataUri;
+        }
+
+        @Override
+        public String toString() {
+            return "FstInfo{" +
+                    "fstMetaUri=" + fstMetaUri +
+                    ", fstDataUri=" + fstDataUri +
+                    '}';
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            FstInfo fstInfo = (FstInfo) o;
+            return Objects.equals(fstMetaUri, fstInfo.fstMetaUri) && Objects.equals(fstDataUri, fstInfo.fstDataUri);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(fstMetaUri, fstDataUri);
+        }
+    }
 }

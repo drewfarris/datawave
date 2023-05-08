@@ -6,12 +6,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import datawave.query.jexl.JexlASTHelper;
 import datawave.query.jexl.JexlNodeFactory;
+import datawave.query.jexl.visitors.PushdownLargeFieldedListsVisitor;
+import datawave.query.jexl.visitors.PushdownLargeFieldedListsVisitor.FstInfo;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Range;
 import org.apache.commons.jexl2.parser.JexlNode;
 
 import java.io.IOException;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -74,7 +75,7 @@ public class ExceededOrThresholdMarkerJexlNode extends QueryPropertyMarker {
         return LABEL;
     }
     
-    public static ExceededOrThresholdMarkerJexlNode createFromFstURI(String fieldName, URI fstPath) throws JsonProcessingException {
+    public static ExceededOrThresholdMarkerJexlNode createFromFstURI(String fieldName, FstInfo fstPath) throws JsonProcessingException {
         return new ExceededOrThresholdMarkerJexlNode(fieldName, fstPath, null, null);
     }
     
@@ -86,8 +87,8 @@ public class ExceededOrThresholdMarkerJexlNode extends QueryPropertyMarker {
         return new ExceededOrThresholdMarkerJexlNode(fieldName, null, null, ranges);
     }
     
-    private ExceededOrThresholdMarkerJexlNode(String fieldName, URI fstPath, Set<String> values, Collection<Range> ranges) throws JsonProcessingException {
-        ExceededOrParams params = (fstPath != null) ? new ExceededOrParams(fstPath.toString()) : new ExceededOrParams(values, ranges);
+    private ExceededOrThresholdMarkerJexlNode(String fieldName, FstInfo fstInfo, Set<String> values, Collection<Range> ranges) throws JsonProcessingException {
+        ExceededOrParams params = (fstInfo != null) ? new ExceededOrParams(fstInfo) : new ExceededOrParams(values, ranges);
         
         // Create an assignment for the params
         JexlNode idNode = JexlNodeFactory.createExpression(JexlNodeFactory.createAssignment(EXCEEDED_OR_ID, UUID.randomUUID().toString()));
@@ -151,7 +152,7 @@ public class ExceededOrThresholdMarkerJexlNode extends QueryPropertyMarker {
     
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ExceededOrParams {
-        private String fstURI;
+        private FstInfo fstInfo;
         private Set<String> values;
         private Collection<String[]> ranges;
         
@@ -159,8 +160,8 @@ public class ExceededOrThresholdMarkerJexlNode extends QueryPropertyMarker {
         @SuppressWarnings("unused")
         private ExceededOrParams() {}
         
-        ExceededOrParams(String fstURI) {
-            this.fstURI = fstURI;
+        ExceededOrParams(FstInfo fstInfo) {
+            this.fstInfo = fstInfo;
         }
         
         ExceededOrParams(Set<String> values, Collection<Range> ranges) {
@@ -215,8 +216,8 @@ public class ExceededOrThresholdMarkerJexlNode extends QueryPropertyMarker {
             return upperBound.length() > 1 && (upperBound.charAt(upperBound.length() - 1) == ']' || upperBound.charAt(upperBound.length() - 1) == ')');
         }
         
-        public String getFstURI() {
-            return fstURI;
+        public FstInfo getFstInfo() {
+            return fstInfo;
         }
         
         public Collection<String> getValues() {
