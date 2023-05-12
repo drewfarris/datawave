@@ -1159,15 +1159,16 @@ public class IteratorBuildingVisitor extends BaseVisitor {
                     // cache these values for use during Jexl Evaluation
                     if (exceededOrEvaluationCache != null)
                         exceededOrEvaluationCache.put(id, values);
-                } else if (params.getFstInfoParam() != null) {
-                    URI fstUri = new URI(params.getFstInfoParam());
+                } else if (params.getFstInfo() != null) {
+                    URI fstMetaUri = params.getFstInfo().getFstMetaUri()
+                    URI fstDataUri = params.getFstInfo().getFstDataUri();
                     FST fst;
                     // only recompute this if not already set since this is potentially expensive
                     if (exceededOrEvaluationCache.containsKey(id)) {
                         fst = (FST) exceededOrEvaluationCache.get(id);
                     } else {
-                        fst = DatawaveFieldIndexListIteratorJexl.FSTManager.get(new Path(fstUri), hdfsFileCompressionCodec,
-                                        hdfsFileSystem.getFileSystem(fstUri));
+                        fst = DatawaveFieldIndexListIteratorJexl.FSTManager.get(new Path(fstMetaUri), new Path(fstDataUri), hdfsFileCompressionCodec,
+                                        hdfsFileSystem.getFileSystem(fstDataUri));
                     }
                     listIterBuilder.setFst(fst);
                     
