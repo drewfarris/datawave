@@ -1160,16 +1160,10 @@ public class IteratorBuildingVisitor extends BaseVisitor {
                     if (exceededOrEvaluationCache != null)
                         exceededOrEvaluationCache.put(id, values);
                 } else if (params.getFstInfo() != null) {
-                    URI fstMetaUri = params.getFstInfo().getFstMetaUri()
-                    URI fstDataUri = params.getFstInfo().getFstDataUri();
-                    FST fst;
                     // only recompute this if not already set since this is potentially expensive
-                    if (exceededOrEvaluationCache.containsKey(id)) {
-                        fst = (FST) exceededOrEvaluationCache.get(id);
-                    } else {
-                        fst = DatawaveFieldIndexListIteratorJexl.FSTManager.get(new Path(fstMetaUri), new Path(fstDataUri), hdfsFileCompressionCodec,
-                                        hdfsFileSystem.getFileSystem(fstDataUri));
-                    }
+                    final FST<?> fst = exceededOrEvaluationCache.containsKey(id) ?
+                            (FST<?>) exceededOrEvaluationCache.get(id) :
+                            DatawaveFieldIndexListIteratorJexl.FSTManager.get(params.getFstInfo(), hdfsFileCompressionCodec, hdfsFileSystem);
                     listIterBuilder.setFst(fst);
                     
                     // cache this fst for use during JexlEvaluation.
@@ -1182,7 +1176,7 @@ public class IteratorBuildingVisitor extends BaseVisitor {
             }
             
             builder.setField(field);
-        } catch (IOException | URISyntaxException | NullPointerException e) {
+        } catch (IOException | NullPointerException e) {
             QueryException qe = new QueryException(DatawaveErrorCode.UNPARSEABLE_EXCEEDED_OR_PARAMS, e, MessageFormat.format("Class: {0}",
                             ExceededOrThresholdMarkerJexlNode.class.getSimpleName()));
             throw new DatawaveFatalQueryException(qe);

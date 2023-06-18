@@ -225,10 +225,10 @@ public class DatawaveFieldIndexListIteratorJexl extends DatawaveFieldIndexCachin
         static private String hdfsFileCompressionCodec;
         
         public static synchronized FST<Object> get(FstInfo fstInfo) throws IOException {
-            return get(fstInfo, hdfsFileCompressionCodec, hdfsFileSystem.getFileSystem(fstInfo.getFstDataUri()));
+            return get(fstInfo, hdfsFileCompressionCodec, hdfsFileSystem);
         }
         
-        public static synchronized FST<Object> get(FstInfo fstInfo, String compressedCodec, FileSystem fs) throws IOException {
+        public static synchronized FST<Object> get(FstInfo fstInfo, String compressedCodec, FileSystemCache hdfsFileSystem) throws IOException {
             if (fstInfo == null)
                 throw new NullPointerException("input fst key was null");
 
@@ -238,12 +238,12 @@ public class DatawaveFieldIndexListIteratorJexl extends DatawaveFieldIndexCachin
             }
             
             // Attempt to load fst from HDFS
-            fst = loadFSTFromFile(fstInfo, compressedCodec, fs);
+            fst = loadFSTFromFile(fstInfo, compressedCodec, hdfsFileSystem);
             fstCache.put(fstInfo, fst);
             return fst;
         }
         
-        public static FST<Object> loadFSTFromFile(FstInfo fstInfo, String compressionCodec, FileSystem fs) throws IOException {
+        public static FST<Object> loadFSTFromFile(FstInfo fstInfo, String compressionCodec, FileSystemCache hdfsFileSystem) throws IOException {
             
             CompressionCodec codec = null;
             if (compressionCodec != null) {
@@ -264,12 +264,12 @@ public class DatawaveFieldIndexListIteratorJexl extends DatawaveFieldIndexCachin
                 }
             }
 
-            InputStream fstMetaStream = fs.open(new Path(fstInfo.getFstMetaUri()));
+            InputStream fstMetaStream = hdfsFileSystem.getFileSystem(fstInfo.getFstMetaUri()).open(new Path(fstInfo.getFstMetaUri()));
             if (codec != null) {
                 fstMetaStream = codec.createInputStream(fstMetaStream);
             }
 
-            InputStream fstDataStream = fs.open(new Path(fstInfo.getFstDataUri()));
+            InputStream fstDataStream = hdfsFileSystem.getFileSystem(fstInfo.getFstDataUri()).open(new Path(fstInfo.getFstDataUri()));
             if (codec != null) {
                 fstDataStream = codec.createInputStream(fstDataStream);
             }

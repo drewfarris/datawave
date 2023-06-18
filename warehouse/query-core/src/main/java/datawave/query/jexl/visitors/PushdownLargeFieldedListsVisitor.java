@@ -359,15 +359,18 @@ public class PushdownLargeFieldedListsVisitor extends RebuildingVisitor {
     }
 
     public static class FstInfo {
-        private static final String sep = "%%";
-        final URI fstMetaUri;
-        final URI fstDataUri;
+        //private static final String sep = "%%";
+        URI fstMetaUri;
+        URI fstDataUri;
+
+        public FstInfo() { }
 
         public FstInfo(URI fstMetaUri, URI fstDataUri) {
             this.fstMetaUri = fstMetaUri;
             this.fstDataUri = fstDataUri;
         }
 
+        /*
         public FstInfo(String fstParamValue) throws IllegalArgumentException {
             int pos = fstParamValue.indexOf(sep);
             if (pos < 0) {
@@ -384,10 +387,7 @@ public class PushdownLargeFieldedListsVisitor extends RebuildingVisitor {
                 throw new IllegalArgumentException("Could not parse URIs from fstParamValue: " + fstParamValue, e);
             }
         }
-
-        public String getParamValue() {
-            return fstMetaUri.toString() + sep + fstDataUri.toString();
-        }
+         */
 
         public URI getFstMetaUri() {
             return fstMetaUri;

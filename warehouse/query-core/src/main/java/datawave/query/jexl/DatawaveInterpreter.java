@@ -570,11 +570,11 @@ public class DatawaveInterpreter extends Interpreter {
                         getContext().set(id, params.getSortedAccumuloRanges());
                     } else if (params.getValues() != null && !params.getValues().isEmpty()) {
                         getContext().set(id, params.getValues());
-                    } else if (params.getFstInfoParam() != null) {
-                        getContext().set(id, DatawaveFieldIndexListIteratorJexl.FSTManager.get(new Path(new URI(params.getFstInfoParam()))));
+                    } else if (params.getFstInfo() != null) {
+                        getContext().set(id, DatawaveFieldIndexListIteratorJexl.FSTManager.get(params.getFstInfo()));
                     }
                 }
-            } catch (IOException | URISyntaxException e) {
+            } catch (IOException e) {
                 log.warn("Unable to load ExceededOrThreshold Parameters during evaluation", e);
             }
         }
