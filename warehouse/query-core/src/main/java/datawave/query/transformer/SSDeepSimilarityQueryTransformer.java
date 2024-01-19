@@ -59,21 +59,26 @@ public class SSDeepSimilarityQueryTransformer extends BaseQueryLogicTransformer<
 
     final int chunkEnd;
 
-    /** Tracks which ssdeep hashes each of the ngrams originated from */
-    final Multimap<NGramTuple,SSDeepHash> queryMap;
-
     /** The maximum number of repeated characters allowed in a ssdeep hash - used to perform normalization for scoring */
     final int maxRepeatedCharacters;
 
     final int minScoreThreshold;
 
+    /** Tracks which ssdeep hashes each of the ngrams originated from */
+    final Multimap<NGramTuple,SSDeepHash> queryMap;
+
+
+
+
+
     public SSDeepSimilarityQueryTransformer(Query query, SSDeepSimilarityQueryConfiguration config, MarkingFunctions markingFunctions,
                     ResponseObjectFactory responseObjectFactory) {
         super(markingFunctions);
         this.auths = new Authorizations(query.getQueryAuthorizations().split(","));
+        this.responseObjectFactory = responseObjectFactory;
+
         this.queryMap = config.getQueryMap();
         this.maxRepeatedCharacters = config.getMaxRepeatedCharacters();
-        this.responseObjectFactory = responseObjectFactory;
 
         this.bucketEncoder = new IntegerEncoding(config.getBucketEncodingBase(), config.getBucketEncodingLength());
         this.chunkSizeEncoding = new ChunkSizeEncoding();

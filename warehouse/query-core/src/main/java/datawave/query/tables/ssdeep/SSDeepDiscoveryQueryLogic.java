@@ -1,18 +1,22 @@
 package datawave.query.tables.ssdeep;
 
+import datawave.ingest.mapreduce.handler.ssdeep.NGramTuple;
+import datawave.ingest.mapreduce.handler.ssdeep.SSDeepHash;
 import datawave.query.discovery.DiscoveredThing;
 import datawave.query.tables.chained.ChainedQueryTable;
+import datawave.query.tables.chained.strategy.ChainStrategy;
 import datawave.webservice.query.Query;
 import datawave.webservice.query.configuration.GenericQueryConfiguration;
 import datawave.webservice.query.logic.QueryLogicTransformer;
 
-import java.util.Iterator;
+import java.util.Map;
 import java.util.Map.Entry;
 
 import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.security.Authorizations;
+import org.apache.commons.collections4.iterators.TransformIterator;
 import org.apache.log4j.Logger;
 
 import java.util.Collections;
@@ -22,7 +26,11 @@ public class SSDeepDiscoveryQueryLogic extends ChainedQueryTable<Entry<Key, Valu
 
     private static final Logger log = Logger.getLogger(SSDeepDiscoveryQueryLogic.class);
 
-    private Query q = null;
+    private Query similarityQuery = null;
+    private Query discoveryQuery = null;
+
+    //TODO: perform some generic tricks??
+    private ChainStrategy<Map.Entry<SSDeepHash, NGramTuple>, DiscoveredThing> tranasformedChainStrategy;
 
     public SSDeepDiscoveryQueryLogic() { super(); }
 
@@ -38,7 +46,8 @@ public class SSDeepDiscoveryQueryLogic extends ChainedQueryTable<Entry<Key, Valu
 
     public GenericQueryConfiguration initialize(AccumuloClient client, Query settings, Set<Authorizations> auths) throws Exception {
         super.initialize(client, settings, auths);
-        this.q = settings.duplicate(settings.getQueryName() + "_discovery_query");
+        this.similarityQuery = settings;
+        this.discoveryQuery = settings.duplicate(settings.getQueryName() + "_discovery_query");
 
         log.debug("Initial settings parameters: " + settings.getParameters().toString());
         GenericQueryConfiguration config = this.logic1.initialize(client, settings, auths);
@@ -46,8 +55,8 @@ public class SSDeepDiscoveryQueryLogic extends ChainedQueryTable<Entry<Key, Valu
     }
 
     public void setupQuery(GenericQueryConfiguration config) throws Exception {
-        if (null == this.getChainStrategy()) {
-            final String error = "No ChainStrategy provided for SSDeepDiscoveryQueryLogic!";
+        if (null == this.getTransformedChainStrategy()) {
+            final String error = "No transformed ChainStrategy provided for SSDeepDiscoveryQueryLogic!";
             log.error(error);
             throw new RuntimeException(error);
         }
@@ -55,10 +64,19 @@ public class SSDeepDiscoveryQueryLogic extends ChainedQueryTable<Entry<Key, Valu
         log.info("Setting up ssdeep query using config");
         this.logic1.setupQuery(config);
 
-        final Iterator<Entry<Key,Value>> iter1 = this.logic1.iterator();
+        //final Iterator<Entry<Key,Value>> iter1 = this.logic1.iterator();
+        final TransformIterator<Entry<Key,Value>, Entry<SSDeepHash, NGramTuple>> transformIterator = this.logic1.getTransformIterator(similarityQuery);
 
         log.info("Running chained discovery query");
-        this.iterator = this.getChainStrategy().runChainedQuery(config.getClient(), this.q, config.getAuthorizations(), iter1, this.logic2);
+        this.iterator = this.getTransformedChainStrategy().runChainedQuery(config.getClient(), this.discoveryQuery, config.getAuthorizations(), transformIterator, this.logic2);
+    }
+
+    public ChainStrategy<Map.Entry<SSDeepHash, NGramTuple>, DiscoveredThing> getTransformedChainStrategy() {
+        return this.tranasformedChainStrategy;
+    }
+
+    public void setTransformedChainStrategy(ChainStrategy<Map.Entry<SSDeepHash, NGramTuple>, DiscoveredThing> tranasformedChainStrategy) {
+        this.tranasformedChainStrategy = tranasformedChainStrategy;
     }
 
     @Override
@@ -74,5 +92,6 @@ public class SSDeepDiscoveryQueryLogic extends ChainedQueryTable<Entry<Key, Valu
     public Set<String> getExampleQueries() {
         return Collections.emptySet();
     } 
+
 
 }

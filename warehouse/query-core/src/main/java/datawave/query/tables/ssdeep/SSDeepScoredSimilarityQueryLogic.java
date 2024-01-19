@@ -1,53 +1,48 @@
 package datawave.query.tables.ssdeep;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
-import java.util.stream.Collectors;
-
-import datawave.query.tables.ScannerFactory;
-import org.apache.accumulo.core.client.AccumuloClient;
-import org.apache.accumulo.core.client.BatchScanner;
-import org.apache.accumulo.core.client.ScannerBase;
-import org.apache.accumulo.core.client.TableNotFoundException;
-import org.apache.accumulo.core.data.Key;
-import org.apache.accumulo.core.data.Range;
-import org.apache.accumulo.core.data.Value;
-import org.apache.accumulo.core.security.Authorizations;
-import org.apache.hadoop.io.Text;
-import org.apache.log4j.Logger;
-
 import com.google.common.collect.Multimap;
-
-import datawave.query.config.SSDeepSimilarityQueryConfiguration;
-import datawave.query.transformer.SSDeepSimilarityQueryTransformer;
 import datawave.ingest.mapreduce.handler.ssdeep.ChunkSizeEncoding;
 import datawave.ingest.mapreduce.handler.ssdeep.IntegerEncoding;
 import datawave.ingest.mapreduce.handler.ssdeep.NGramGenerator;
 import datawave.ingest.mapreduce.handler.ssdeep.NGramTuple;
 import datawave.ingest.mapreduce.handler.ssdeep.SSDeepHash;
+import datawave.query.config.SSDeepSimilarityQueryConfiguration;
+import datawave.query.tables.ScannerFactory;
+import datawave.query.transformer.SSDeepScoredSimilarityQueryTransformer;
 import datawave.webservice.common.connection.AccumuloConnectionFactory;
 import datawave.webservice.query.Query;
 import datawave.webservice.query.configuration.GenericQueryConfiguration;
 import datawave.webservice.query.exception.QueryException;
 import datawave.webservice.query.logic.BaseQueryLogic;
 import datawave.webservice.query.logic.QueryLogicTransformer;
+import org.apache.accumulo.core.client.AccumuloClient;
+import org.apache.accumulo.core.client.BatchScanner;
+import org.apache.accumulo.core.client.ScannerBase;
+import org.apache.accumulo.core.client.TableNotFoundException;
+import org.apache.accumulo.core.data.Range;
+import org.apache.accumulo.core.security.Authorizations;
+import org.apache.hadoop.io.Text;
+import org.apache.log4j.Logger;
 
-public class SSDeepSimilarityQueryLogic extends BaseQueryLogic<Map.Entry<Key, Value>> {
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
 
-    private static final Logger log = Logger.getLogger(SSDeepSimilarityQueryLogic.class);
+public class SSDeepScoredSimilarityQueryLogic extends BaseQueryLogic<ScoredSSDeepPair> {
+
+    private static final Logger log = Logger.getLogger(SSDeepScoredSimilarityQueryLogic.class);
 
     private SSDeepSimilarityQueryConfiguration config;
 
     ScannerFactory scannerFactory;
 
-    public SSDeepSimilarityQueryLogic() {
+    public SSDeepScoredSimilarityQueryLogic() {
         super();
     }
 
-    public SSDeepSimilarityQueryLogic(final SSDeepSimilarityQueryLogic ssDeepSimilarityTable) {
+    public SSDeepScoredSimilarityQueryLogic(final SSDeepScoredSimilarityQueryLogic ssDeepSimilarityTable) {
         super(ssDeepSimilarityTable);
         this.config = ssDeepSimilarityTable.config;
         this.scannerFactory = ssDeepSimilarityTable.scannerFactory;
@@ -63,10 +58,9 @@ public class SSDeepSimilarityQueryLogic extends BaseQueryLogic<Map.Entry<Key, Va
 
     @Override
     public GenericQueryConfiguration initialize(AccumuloClient accumuloClient, Query settings, Set<Authorizations> auths) throws Exception {
-        final SSDeepSimilarityQueryConfiguration config = getConfig();
-
         this.scannerFactory = new ScannerFactory(accumuloClient);
 
+        final SSDeepSimilarityQueryConfiguration config = getConfig();
         config.setQuery(settings);
         config.setClient(accumuloClient);
         config.setAuthorizations(auths);
@@ -85,14 +79,21 @@ public class SSDeepSimilarityQueryLogic extends BaseQueryLogic<Map.Entry<Key, Va
         try {
             final BatchScanner scanner = this.scannerFactory.newScanner(config.getTableName(), config.getAuthorizations(), config.getQueryThreads(),
                             config.getQuery());
+
             scanner.setRanges(config.getRanges());
-            this.iterator = scanner.iterator();
+
+            // must be called after setRanges so that we get the query map from the config.
+            final SSDeepScoringFunction scoringFunction = new SSDeepScoringFunction(config);
+
+            this.iterator = scanner.stream().flatMap(scoringFunction).distinct().iterator();
             this.scanner = scanner;
 
         } catch (TableNotFoundException e) {
             throw new RuntimeException("Table not found: " + this.getTableName(), e);
         }
     }
+
+
 
     /**
      * Process the query to create the ngrams for the ranges to scan in accumulo. Store these in the configs along with a map that can be used to identify which
@@ -126,6 +127,7 @@ public class SSDeepSimilarityQueryLogic extends BaseQueryLogic<Map.Entry<Key, Va
 
         final int indexBuckets = config.getIndexBuckets();
 
+        //TODO: stream?
         for (NGramTuple ct : queryMap.keys()) {
             final String sizeAndChunk = chunkSizeEncoder.encode(ct.getChunkSize()) + ct.getChunk();
             for (int i = 0; i < indexBuckets; i++) {
@@ -145,7 +147,7 @@ public class SSDeepSimilarityQueryLogic extends BaseQueryLogic<Map.Entry<Key, Va
 
     @Override
     public Object clone() throws CloneNotSupportedException {
-        return new SSDeepSimilarityQueryLogic(this);
+        return new SSDeepScoredSimilarityQueryLogic(this);
     }
 
     @Override
@@ -174,7 +176,7 @@ public class SSDeepSimilarityQueryLogic extends BaseQueryLogic<Map.Entry<Key, Va
     @Override
     public QueryLogicTransformer getTransformer(Query settings) {
         final SSDeepSimilarityQueryConfiguration config = getConfig();
-        return new SSDeepSimilarityQueryTransformer(settings, config, this.markingFunctions, this.responseObjectFactory);
+        return new SSDeepScoredSimilarityQueryTransformer(settings, config, this.markingFunctions, this.responseObjectFactory);
     }
 
     @Override

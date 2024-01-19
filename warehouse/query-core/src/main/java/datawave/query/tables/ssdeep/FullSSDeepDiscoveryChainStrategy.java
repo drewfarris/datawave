@@ -1,29 +1,32 @@
 package datawave.query.tables.ssdeep;
 
+import datawave.ingest.mapreduce.handler.ssdeep.NGramTuple;
+import datawave.ingest.mapreduce.handler.ssdeep.SSDeepHash;
 import datawave.query.discovery.DiscoveredThing;
 import datawave.query.tables.chained.strategy.FullChainStrategy;
 import datawave.webservice.query.Query;
 import datawave.webservice.query.QueryImpl;
-import org.apache.accumulo.core.data.Key;
-import org.apache.accumulo.core.data.Value;
+import datawave.webservice.query.logic.QueryLogic;
+import org.apache.accumulo.core.client.AccumuloClient;
+import org.apache.accumulo.core.security.Authorizations;
 
-import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
 
-public class FullSSDeepDiscoveryChainStrategy extends FullChainStrategy<Map.Entry<Key, Value>, DiscoveredThing> {
+public class FullSSDeepDiscoveryChainStrategy extends FullChainStrategy<Entry<SSDeepHash, NGramTuple>, DiscoveredThing> {
     @Override
-    protected Query buildLatterQuery(Query initialQuery, Iterator<Map.Entry<Key, Value>> initialQueryResults, String latterLogicName) {
+    protected Query buildLatterQuery(Query initialQuery, Iterator<Entry<SSDeepHash, NGramTuple>> initialQueryResults, String latterLogicName) {
         log.debug("buildLatterQuery() called...");
         StringBuilder b = new StringBuilder();
         Set<String> ssdeepSeen = new HashSet<>();
         while (initialQueryResults.hasNext()) {
-            Map.Entry<Key, Value> result = initialQueryResults.next();
-            Key key = result.getKey();
-            String ssdeep = key.getColumnQualifier().toString();
+            Map.Entry<SSDeepHash, NGramTuple> result = initialQueryResults.next();
+            SSDeepHash key = result.getKey();
+            String ssdeep = key.toString();
             if (ssdeepSeen.contains(ssdeep)) {
                 continue;
             }
@@ -42,5 +45,10 @@ public class FullSSDeepDiscoveryChainStrategy extends FullChainStrategy<Map.Entr
         q.setQueryAuthorizations(initialQuery.getQueryAuthorizations());
         q.setUserDN(initialQuery.getUserDN());
         return q;
+    }
+
+    @Override
+    public Iterator<DiscoveredThing> runChainedQuery(AccumuloClient client, Query initialQuery, Set<Authorizations> auths, Iterator<Entry<SSDeepHash, NGramTuple>> initialQueryResults, QueryLogic<DiscoveredThing> latterQueryLogic) throws Exception {
+        return super.runChainedQuery(client, initialQuery, auths, initialQueryResults, latterQueryLogic);
     }
 }
