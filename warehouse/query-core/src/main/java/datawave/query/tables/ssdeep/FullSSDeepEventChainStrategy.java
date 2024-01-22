@@ -1,5 +1,6 @@
 package datawave.query.tables.ssdeep;
 
+import datawave.ingest.mapreduce.handler.ssdeep.SSDeepHash;
 import datawave.query.tables.chained.strategy.FullChainStrategy;
 import datawave.webservice.query.Query;
 import datawave.webservice.query.QueryImpl;
@@ -12,16 +13,18 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-public class FullSSDeepEventChainStrategy extends FullChainStrategy<Map.Entry<Key, Value>, Map.Entry<Key, Value>> {
+public class FullSSDeepEventChainStrategy extends FullChainStrategy<ScoredSSDeepPair, Map.Entry<Key, Value>> {
     @Override
-    protected Query buildLatterQuery(Query initialQuery, Iterator<Map.Entry<Key, Value>> initialQueryResults, String latterLogicName) {
+    protected Query buildLatterQuery(Query initialQuery, Iterator<ScoredSSDeepPair> initialQueryResults, String latterLogicName) {
         log.debug("buildLatterQuery() called...");
         StringBuilder b = new StringBuilder();
         Set<String> ssdeepSeen = new HashSet<>();
+
+        //TODO: rewrite as stream
         while (initialQueryResults.hasNext()) {
-            Map.Entry<Key, Value> result = initialQueryResults.next();
-            Key key = result.getKey();
-            String ssdeep = key.getColumnQualifier().toString();
+            ScoredSSDeepPair result = initialQueryResults.next();
+            SSDeepHash matchingHash = result.getMatchingHash();
+            String ssdeep = matchingHash.toString();
             if (ssdeepSeen.contains(ssdeep)) {
                 continue;
             }
@@ -32,6 +35,8 @@ public class FullSSDeepEventChainStrategy extends FullChainStrategy<Map.Entry<Ke
             }
             b.append("CHECKSUM_SSDEEP:\"").append(ssdeep).append("\"");
         }
+
+
 
         Query q = new QueryImpl(); // TODO, need to use a factory? don't hardcode this.
         q.setQuery(b.toString());

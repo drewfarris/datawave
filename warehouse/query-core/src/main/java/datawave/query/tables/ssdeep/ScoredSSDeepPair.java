@@ -5,9 +5,12 @@ import datawave.ingest.mapreduce.handler.ssdeep.SSDeepHash;
 import java.util.Objects;
 
 /**
- * Captures a scored query hash and matching hash pair
+ * Captures a scored pair of query hash and matching hash.
  */
-public class ScoredSSDeepPair {
+public class ScoredSSDeepPair implements Comparable<ScoredSSDeepPair> {
+
+    public static final java.util.Comparator<ScoredSSDeepPair> NATURAL_ORDER = new Comparator();
+
     private final SSDeepHash queryHash;
     private final SSDeepHash matchingHash;
     int weightedScore;
@@ -48,5 +51,24 @@ public class ScoredSSDeepPair {
         result = 31 * result + (matchingHash != null ? matchingHash.hashCode() : 0);
         result = 31 * result + weightedScore;
         return result;
+    }
+
+    @Override
+    public int compareTo(ScoredSSDeepPair o) {
+        return NATURAL_ORDER.compare(this, o);
+    }
+
+    public static class Comparator implements java.util.Comparator<ScoredSSDeepPair> {
+        @Override
+        public int compare(ScoredSSDeepPair o1, ScoredSSDeepPair o2) {
+            int cmp = o1.getQueryHash().compareTo(o2.getQueryHash());
+            if (cmp == 0) {
+                cmp = o1.getMatchingHash().compareTo(o2.getMatchingHash());
+            }
+            if (cmp == 0) {
+                cmp = o1.getWeightedScore() - o2.getWeightedScore();
+            }
+            return cmp;
+        }
     }
 }

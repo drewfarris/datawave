@@ -15,16 +15,16 @@ import java.util.Iterator;
 import java.util.Map.Entry;
 import java.util.Set;
 
-public class SSDeepEventQueryLogic extends ChainedQueryTable<Entry<Key, Value>, Entry<Key, Value>> {
+public class SSDeepChainedEventQueryLogic extends ChainedQueryTable<ScoredSSDeepPair, Entry<Key, Value>> {
 
-    private static final Logger log = Logger.getLogger(SSDeepEventQueryLogic.class);
+    private static final Logger log = Logger.getLogger(SSDeepChainedEventQueryLogic.class);
 
     private Query q = null;
 
-    public SSDeepEventQueryLogic() { super(); }
+    public SSDeepChainedEventQueryLogic() { super(); }
 
     @SuppressWarnings("CopyConstructorMissesField")
-    public SSDeepEventQueryLogic(SSDeepEventQueryLogic other) {
+    public SSDeepChainedEventQueryLogic(SSDeepChainedEventQueryLogic other) {
         super(other);
     }
 
@@ -44,7 +44,7 @@ public class SSDeepEventQueryLogic extends ChainedQueryTable<Entry<Key, Value>, 
 
     public void setupQuery(GenericQueryConfiguration config) throws Exception {
         if (null == this.getChainStrategy()) {
-            final String error = "No ChainStrategy provided for SSDeepDiscoveryQueryLogic!";
+            final String error = "No ChainStrategy provided for SSDeepChainedDiscoveryQueryLogic!";
             log.error(error);
             throw new RuntimeException(error);
         }
@@ -52,7 +52,7 @@ public class SSDeepEventQueryLogic extends ChainedQueryTable<Entry<Key, Value>, 
         log.info("Setting up ssdeep query using config");
         this.logic1.setupQuery(config);
 
-        final Iterator<Entry<Key,Value>> iter1 = this.logic1.iterator();
+        final Iterator<ScoredSSDeepPair> iter1 = this.logic1.iterator();
 
         log.info("Running chained discovery query");
         this.iterator = this.getChainStrategy().runChainedQuery(config.getClient(), this.q, config.getAuthorizations(), iter1, this.logic2);
@@ -64,8 +64,8 @@ public class SSDeepEventQueryLogic extends ChainedQueryTable<Entry<Key, Value>, 
     }
 
     @Override
-    public SSDeepEventQueryLogic clone() throws CloneNotSupportedException {
-        return new SSDeepEventQueryLogic(this);
+    public SSDeepChainedEventQueryLogic clone() throws CloneNotSupportedException {
+        return new SSDeepChainedEventQueryLogic(this);
     }
 
     public Set<String> getExampleQueries() {

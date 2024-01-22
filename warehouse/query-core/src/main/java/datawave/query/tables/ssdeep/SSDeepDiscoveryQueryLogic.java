@@ -1,97 +1,468 @@
 package datawave.query.tables.ssdeep;
 
-import datawave.ingest.mapreduce.handler.ssdeep.NGramTuple;
-import datawave.ingest.mapreduce.handler.ssdeep.SSDeepHash;
+import datawave.audit.SelectorExtractor;
+import datawave.marking.MarkingFunctions;
 import datawave.query.discovery.DiscoveredThing;
-import datawave.query.tables.chained.ChainedQueryTable;
-import datawave.query.tables.chained.strategy.ChainStrategy;
+import datawave.query.discovery.DiscoveryLogic;
+import datawave.query.discovery.DiscoveryTransformer;
+import datawave.query.util.MetadataHelperFactory;
+import datawave.security.authorization.UserOperations;
+import datawave.webservice.common.audit.Auditor;
+import datawave.webservice.common.connection.AccumuloConnectionFactory;
 import datawave.webservice.query.Query;
+import datawave.webservice.query.cache.ResultsPage;
 import datawave.webservice.query.configuration.GenericQueryConfiguration;
+import datawave.webservice.query.exception.EmptyObjectException;
+import datawave.webservice.query.exception.QueryException;
+import datawave.webservice.query.iterator.DatawaveTransformIterator;
+import datawave.webservice.query.logic.AbstractQueryLogicTransformer;
+import datawave.webservice.query.logic.BaseQueryLogic;
 import datawave.webservice.query.logic.QueryLogicTransformer;
-
-import java.util.Map;
-import java.util.Map.Entry;
-
+import datawave.webservice.query.logic.ResponseEnricher;
+import datawave.webservice.query.logic.ResponseEnricherBuilder;
+import datawave.webservice.query.logic.RoleManager;
+import datawave.webservice.query.result.event.EventBase;
+import datawave.webservice.query.result.event.FieldBase;
+import datawave.webservice.query.result.event.ResponseObjectFactory;
+import datawave.webservice.result.BaseQueryResponse;
 import org.apache.accumulo.core.client.AccumuloClient;
-import org.apache.accumulo.core.data.Key;
-import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.security.Authorizations;
+import org.apache.commons.collections4.Transformer;
 import org.apache.commons.collections4.iterators.TransformIterator;
-import org.apache.log4j.Logger;
+import org.springframework.beans.factory.annotation.Required;
 
-import java.util.Collections;
+import java.lang.reflect.Field;
+import java.security.Principal;
+import java.util.Collection;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
-public class SSDeepDiscoveryQueryLogic extends ChainedQueryTable<Entry<Key, Value>, DiscoveredThing> {
 
-    private static final Logger log = Logger.getLogger(SSDeepDiscoveryQueryLogic.class);
+public class SSDeepDiscoveryQueryLogic extends BaseQueryLogic<DiscoveredSSDeep> {
+    public DiscoveryLogic discoveryDelegate;
 
-    private Query similarityQuery = null;
-    private Query discoveryQuery = null;
+    @SuppressWarnings("ConstantConditions")
+    public SSDeepDiscoveryQueryLogic() {
+        super();
+        if (this.discoveryDelegate == null) { // may be set by super constructor
+            this.discoveryDelegate = new DiscoveryLogic();
+        }
+    }
 
-    //TODO: perform some generic tricks??
-    private ChainStrategy<Map.Entry<SSDeepHash, NGramTuple>, DiscoveredThing> tranasformedChainStrategy;
-
-    public SSDeepDiscoveryQueryLogic() { super(); }
-
-    @SuppressWarnings("CopyConstructorMissesField")
     public SSDeepDiscoveryQueryLogic(SSDeepDiscoveryQueryLogic other) {
         super(other);
+        this.discoveryDelegate = (DiscoveryLogic) other.discoveryDelegate.clone();
     }
 
     @Override
-    public void close() {
-        super.close();
-    }
+    public QueryLogicTransformer getTransformer(final Query settings) {
+        //TODO: implement our transformer here.
+        //return discoveryDelegate.getTransformer(settings);
 
-    public GenericQueryConfiguration initialize(AccumuloClient client, Query settings, Set<Authorizations> auths) throws Exception {
-        super.initialize(client, settings, auths);
-        this.similarityQuery = settings;
-        this.discoveryQuery = settings.duplicate(settings.getQueryName() + "_discovery_query");
+        final DiscoveryTransformer discoveryTransformer = (DiscoveryTransformer) discoveryDelegate.getTransformer(settings);
+        QueryLogicTransformer<DiscoveredSSDeep, EventBase> ssdeepTransformer = new AbstractQueryLogicTransformer<>() {
+            @Override
+            public BaseQueryResponse createResponse(List<Object> resultList) {
+                return discoveryTransformer.createResponse(resultList);
+            }
 
-        log.debug("Initial settings parameters: " + settings.getParameters().toString());
-        GenericQueryConfiguration config = this.logic1.initialize(client, settings, auths);
-        return config;
-    }
+            @Override
+            public EventBase transform(DiscoveredSSDeep discoveredSSDeep) {
+                EventBase eventBase = discoveryTransformer.transform(discoveredSSDeep.getDiscoveredThing());
+                ResponseObjectFactory responseObjectFactory = discoveryDelegate.getResponseObjectFactory();
+                ScoredSSDeepPair scoredSSDeepPair = discoveredSSDeep.getScoredSSDeepPair();
+                if (scoredSSDeepPair != null) {
+                    List<FieldBase<?>> fields = eventBase.getFields();
+                    Optional<FieldBase<?>> valueFieldOptional = fields.stream()
+                            .filter(field -> "VALUE".equals(field.getName()))
+                            .findFirst();
 
-    public void setupQuery(GenericQueryConfiguration config) throws Exception {
-        if (null == this.getTransformedChainStrategy()) {
-            final String error = "No transformed ChainStrategy provided for SSDeepDiscoveryQueryLogic!";
-            log.error(error);
-            throw new RuntimeException(error);
-        }
+                    if (valueFieldOptional.isEmpty()) {
+                        throw new IllegalStateException("Could not find value field in event");
+                    }
 
-        log.info("Setting up ssdeep query using config");
-        this.logic1.setupQuery(config);
+                    FieldBase<?> valueField = valueFieldOptional.get();
 
-        //final Iterator<Entry<Key,Value>> iter1 = this.logic1.iterator();
-        final TransformIterator<Entry<Key,Value>, Entry<SSDeepHash, NGramTuple>> transformIterator = this.logic1.getTransformIterator(similarityQuery);
+                    {
+                        FieldBase<?> field = responseObjectFactory.getField();
+                        field.setName("QUERY");
+                        field.setMarkings(valueField.getMarkings());
+                        field.setColumnVisibility(valueField.getColumnVisibility());
+                        field.setTimestamp(valueField.getTimestamp());
+                        field.setValue(scoredSSDeepPair.getQueryHash().toString());
+                        fields.add(field);
+                    }
 
-        log.info("Running chained discovery query");
-        this.iterator = this.getTransformedChainStrategy().runChainedQuery(config.getClient(), this.discoveryQuery, config.getAuthorizations(), transformIterator, this.logic2);
-    }
+                    {
+                        FieldBase<?> field = responseObjectFactory.getField();
+                        field.setName("WEIGHTED_SCORE");
+                        field.setMarkings(valueField.getMarkings());
+                        field.setColumnVisibility(valueField.getColumnVisibility());
+                        field.setTimestamp(valueField.getTimestamp());
+                        field.setValue(scoredSSDeepPair.getWeightedScore());
+                        fields.add(field);
+                    }
 
-    public ChainStrategy<Map.Entry<SSDeepHash, NGramTuple>, DiscoveredThing> getTransformedChainStrategy() {
-        return this.tranasformedChainStrategy;
-    }
+                }
 
-    public void setTransformedChainStrategy(ChainStrategy<Map.Entry<SSDeepHash, NGramTuple>, DiscoveredThing> tranasformedChainStrategy) {
-        this.tranasformedChainStrategy = tranasformedChainStrategy;
+                return eventBase;
+            }
+        };
+        return ssdeepTransformer;
+
     }
 
     @Override
-    public QueryLogicTransformer getTransformer(Query settings) {
-        return this.logic2.getTransformer(settings);
+    public TransformIterator getTransformIterator(Query settings) {
+        return new DatawaveTransformIterator(this.iterator(), this.getTransformer(settings));
     }
 
     @Override
-    public SSDeepDiscoveryQueryLogic clone() throws CloneNotSupportedException {
+    public Iterator iterator() {
+        //return discoveryDelegate.iterator();
+
+        return new TransformIterator<DiscoveredThing, DiscoveredSSDeep>(discoveryDelegate.iterator(), new Transformer<DiscoveredThing, DiscoveredSSDeep>() {
+            @Override
+            public DiscoveredSSDeep transform(DiscoveredThing o) {
+                return new DiscoveredSSDeep(null, o);
+            }
+        });
+
+    }
+
+    // All delegate methods past this point //
+
+    public void setTableName(String tableName) {
+        discoveryDelegate.setTableName(tableName);
+    }
+
+    public void setIndexTableName(String tableName) {
+        discoveryDelegate.setIndexTableName(tableName);
+    }
+
+    public void setReverseIndexTableName(String tableName) {
+        discoveryDelegate.setReverseIndexTableName(tableName);
+    }
+
+    public void setModelTableName(String tableName) {
+        discoveryDelegate.setModelTableName(tableName);
+    }
+
+    public void setMetadataHelperFactory(MetadataHelperFactory metadataHelperFactory) {
+        discoveryDelegate.setMetadataHelperFactory(metadataHelperFactory);
+    }
+
+    public void setResponseObjectFactory(ResponseObjectFactory responseObjectFactory) {
+        discoveryDelegate.setResponseObjectFactory(responseObjectFactory);
+    }
+
+    public void setMarkingFunctions(MarkingFunctions markingFunctions) {
+        discoveryDelegate.setMarkingFunctions(markingFunctions);
+    }
+
+    @Override
+    public GenericQueryConfiguration initialize(AccumuloClient client, Query settings, Set<Authorizations> runtimeQueryAuthorizations) throws Exception {
+        return discoveryDelegate.initialize(client, settings, runtimeQueryAuthorizations);
+    }
+
+    @Override
+    public void setupQuery(GenericQueryConfiguration configuration) throws Exception {
+        discoveryDelegate.setupQuery(configuration);
+    }
+
+    @Override
+    public Object clone() throws CloneNotSupportedException {
         return new SSDeepDiscoveryQueryLogic(this);
     }
 
+    @Override
+    public AccumuloConnectionFactory.Priority getConnectionPriority() {
+        return discoveryDelegate.getConnectionPriority();
+    }
+
+    @Override
+    public Set<String> getOptionalQueryParameters() {
+        return discoveryDelegate.getOptionalQueryParameters();
+    }
+
+    @Override
+    public Set<String> getRequiredQueryParameters() {
+        return discoveryDelegate.getRequiredQueryParameters();
+    }
+
+    @Override
     public Set<String> getExampleQueries() {
-        return Collections.emptySet();
-    } 
+        return discoveryDelegate.getExampleQueries();
+    }
 
+    @Override
+    public GenericQueryConfiguration getConfig() {
+        if (discoveryDelegate == null) {
+            discoveryDelegate = new DiscoveryLogic();
+        }
+        return discoveryDelegate.getConfig();
+    }
 
+    @Override
+    public String getPlan(AccumuloClient client, Query settings, Set<Authorizations> runtimeQueryAuthorizations, boolean expandFields, boolean expandValues) throws Exception {
+        return discoveryDelegate.getPlan(client, settings, runtimeQueryAuthorizations, expandFields, expandValues);
+    }
+
+    @Override
+    public MarkingFunctions getMarkingFunctions() {
+        return discoveryDelegate.getMarkingFunctions();
+    }
+
+    @Override
+    public ResponseObjectFactory getResponseObjectFactory() {
+        return discoveryDelegate.getResponseObjectFactory();
+    }
+
+    @Override
+    public Principal getPrincipal() {
+        return discoveryDelegate.getPrincipal();
+    }
+
+    @Override
+    public void setPrincipal(Principal principal) {
+        discoveryDelegate.setPrincipal(principal);
+    }
+
+    @Override
+    public String getTableName() {
+        return discoveryDelegate.getTableName();
+    }
+
+    @Override
+    public long getMaxResults() {
+        return discoveryDelegate.getMaxResults();
+    }
+
+    @Override
+    public long getMaxWork() {
+        return discoveryDelegate.getMaxWork();
+    }
+
+    @Override
+    public void setMaxResults(long maxResults) {
+        discoveryDelegate.setMaxResults(maxResults);
+    }
+
+    @Override
+    public void setMaxWork(long maxWork) {
+        discoveryDelegate.setMaxWork(maxWork);
+    }
+
+    @Override
+    public int getMaxPageSize() {
+        return discoveryDelegate.getMaxPageSize();
+    }
+
+    @Override
+    public void setMaxPageSize(int maxPageSize) {
+        discoveryDelegate.setMaxPageSize(maxPageSize);
+    }
+
+    @Override
+    public long getPageByteTrigger() {
+        return discoveryDelegate.getPageByteTrigger();
+    }
+
+    @Override
+    public void setPageByteTrigger(long pageByteTrigger) {
+        discoveryDelegate.setPageByteTrigger(pageByteTrigger);
+    }
+
+    @Override
+    public int getBaseIteratorPriority() {
+        return discoveryDelegate.getBaseIteratorPriority();
+    }
+
+    @Override
+    public void setBaseIteratorPriority(int baseIteratorPriority) {
+        discoveryDelegate.setBaseIteratorPriority(baseIteratorPriority);
+    }
+
+    @Override
+    public String getLogicName() {
+        return discoveryDelegate.getLogicName();
+    }
+
+    @Override
+    public void setLogicName(String logicName) {
+        discoveryDelegate.setLogicName(logicName);
+    }
+
+    @Override
+    public boolean getBypassAccumulo() {
+        return discoveryDelegate.getBypassAccumulo();
+    }
+
+    @Override
+    public void setBypassAccumulo(boolean bypassAccumulo) {
+        discoveryDelegate.setBypassAccumulo(bypassAccumulo);
+    }
+
+    @Override
+    public String getAccumuloPassword() {
+        return discoveryDelegate.getAccumuloPassword();
+    }
+
+    @Override
+    public void setAccumuloPassword(String accumuloPassword) {
+        discoveryDelegate.setAccumuloPassword(accumuloPassword);
+    }
+
+    @Override
+    public Auditor.AuditType getAuditType(Query query) {
+        return discoveryDelegate.getAuditType(query);
+    }
+
+    @Override
+    public Auditor.AuditType getAuditType() {
+        return discoveryDelegate.getAuditType();
+    }
+
+    @Override
+    public void setAuditType(Auditor.AuditType auditType) {
+        discoveryDelegate.setAuditType(auditType);
+    }
+
+    @Override
+    public void setLogicDescription(String logicDescription) {
+        discoveryDelegate.setLogicDescription(logicDescription);
+    }
+
+    @Override
+    public String getLogicDescription() {
+        return discoveryDelegate.getLogicDescription();
+    }
+
+    @Override
+    public boolean getCollectQueryMetrics() {
+        return discoveryDelegate.getCollectQueryMetrics();
+    }
+
+    @Override
+    public void setCollectQueryMetrics(boolean collectQueryMetrics) {
+        discoveryDelegate.setCollectQueryMetrics(collectQueryMetrics);
+    }
+
+    @Override
+    public RoleManager getRoleManager() {
+        return discoveryDelegate.getRoleManager();
+    }
+
+    @Override
+    public void setRoleManager(RoleManager roleManager) {
+        discoveryDelegate.setRoleManager(roleManager);
+    }
+
+    @Override
+    public String getConnPoolName() {
+        return discoveryDelegate.getConnPoolName();
+    }
+
+    @Override
+    public void setConnPoolName(String connPoolName) {
+        discoveryDelegate.setConnPoolName(connPoolName);
+    }
+
+    @Override
+    public boolean canRunQuery() {
+        return discoveryDelegate.canRunQuery();
+    }
+
+    @Override
+    public boolean canRunQuery(Principal principal) {
+        return discoveryDelegate.canRunQuery(principal);
+    }
+
+    @Override
+    public List<String> getSelectors(Query settings) throws IllegalArgumentException {
+        return discoveryDelegate.getSelectors(settings);
+    }
+
+    @Override
+    public void setSelectorExtractor(SelectorExtractor selectorExtractor) {
+        discoveryDelegate.setSelectorExtractor(selectorExtractor);
+    }
+
+    @Override
+    public SelectorExtractor getSelectorExtractor() {
+        return discoveryDelegate.getSelectorExtractor();
+    }
+
+    @Override
+    public Set<String> getAuthorizedDNs() {
+        return discoveryDelegate.getAuthorizedDNs();
+    }
+
+    @Override
+    public void setAuthorizedDNs(Set<String> authorizedDNs) {
+        discoveryDelegate.setAuthorizedDNs(authorizedDNs);
+    }
+
+    @Override
+    public void setDnResultLimits(Map<String, Long> dnResultLimits) {
+        discoveryDelegate.setDnResultLimits(dnResultLimits);
+    }
+
+    @Override
+    public Map<String, Long> getDnResultLimits() {
+        return discoveryDelegate.getDnResultLimits();
+    }
+
+    @Override
+    public void setSystemFromResultLimits(Map<String, Long> systemFromLimits) {
+        discoveryDelegate.setSystemFromResultLimits(systemFromLimits);
+    }
+
+    @Override
+    public Map<String, Long> getSystemFromResultLimits() {
+        return discoveryDelegate.getSystemFromResultLimits();
+    }
+
+    @Override
+    public void setPageProcessingStartTime(long pageProcessingStartTime) {
+        discoveryDelegate.setPageProcessingStartTime(pageProcessingStartTime);
+    }
+
+    @Override
+    public boolean isLongRunningQuery() {
+        return discoveryDelegate.isLongRunningQuery();
+    }
+
+    @Override
+    public ResponseEnricherBuilder getResponseEnricherBuilder() {
+        return discoveryDelegate.getResponseEnricherBuilder();
+    }
+
+    @Override
+    public void setResponseEnricherBuilder(ResponseEnricherBuilder responseEnricherBuilder) {
+        discoveryDelegate.setResponseEnricherBuilder(responseEnricherBuilder);
+    }
+
+    @Override
+    public UserOperations getUserOperations() {
+        return discoveryDelegate.getUserOperations();
+    }
+
+    @Override
+    public String getResponseClass(Query query) throws QueryException {
+        return discoveryDelegate.getResponseClass(query);
+    }
+
+    @Override
+    public boolean containsDNWithAccess(Collection<String> dns) {
+        return discoveryDelegate.containsDNWithAccess(dns);
+    }
+
+    @Override
+    public long getResultLimit(Query settings) {
+        return discoveryDelegate.getResultLimit(settings);
+    }
 }
