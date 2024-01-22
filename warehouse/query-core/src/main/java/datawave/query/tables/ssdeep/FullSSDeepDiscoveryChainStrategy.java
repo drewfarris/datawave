@@ -10,52 +10,37 @@ import datawave.webservice.query.QueryImpl;
 import datawave.webservice.query.logic.QueryLogic;
 import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.security.Authorizations;
+import org.apache.log4j.Logger;
 
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 public class FullSSDeepDiscoveryChainStrategy extends FullChainStrategy<ScoredSSDeepPair, DiscoveredSSDeep> {
+    private static final Logger log = Logger.getLogger(FullSSDeepDiscoveryChainStrategy.class);
 
-    Multimap<String, ScoredSSDeepPair> scoredMatches;
+    private Multimap<String, ScoredSSDeepPair> scoredMatches;
 
     @Override
     protected Query buildLatterQuery(Query initialQuery, Iterator<ScoredSSDeepPair> initialQueryResults, String latterLogicName) {
         log.debug("buildLatterQuery() called...");
 
         // track the scored matches we've seen while traversing the initial query results.
-        // this has to be case insensitive because the CHECKSUM_SSDEEP index entries are most likely downcased.
+        // this has to be case-insensitive because the CHECKSUM_SSDEEP index entries are most likely downcased.
         scoredMatches = TreeMultimap.create(
                 String.CASE_INSENSITIVE_ORDER,
                 ScoredSSDeepPair.NATURAL_ORDER
         );
 
-        // extract the matched ssdeeps from the query results and generate the discovery query.
-        StringBuilder b = new StringBuilder();
-        Set<String> ssdeepSeen = new HashSet<>();
-        while (initialQueryResults.hasNext()) {
-            ScoredSSDeepPair result = initialQueryResults.next();
-            SSDeepHash matchingHash = result.getMatchingHash();
-            scoredMatches.put(matchingHash.toString(), result);
-            String ssdeep = matchingHash.toString();
-            if (ssdeepSeen.contains(ssdeep)) {
-                continue;
-            }
-            log.debug("Added new ssdeep " + ssdeep);
-            ssdeepSeen.add(ssdeep);
-            if (b.length() > 0) {
-                b.append(" OR ");
-            }
-            b.append("CHECKSUM_SSDEEP:\"").append(ssdeep).append("\"");
-        }
+        String queryString = captureScoredMatchesAndBuildQuery(initialQueryResults, scoredMatches);
 
         Query q = new QueryImpl(); // TODO, need to use a factory? don't hardcode this.
-        q.setQuery(b.toString());
+        q.setQuery(queryString);
         q.setId(UUID.randomUUID());
         q.setPagesize(Integer.MAX_VALUE); // TODO: choose something reasonable.
         q.setQueryAuthorizations(initialQuery.getQueryAuthorizations());
@@ -73,17 +58,69 @@ public class FullSSDeepDiscoveryChainStrategy extends FullChainStrategy<ScoredSS
                 ScoredSSDeepPair.NATURAL_ORDER);
         localScoredMatches.putAll(scoredMatches);
 
-        // For each of the discovered SSDeep hashes returned by the discovery logic, enrish them with the original
-        // query and scores.
-        final Stream<DiscoveredSSDeep> stream = StreamSupport.stream(
-                Spliterators.spliteratorUnknownSize(it, Spliterator.ORDERED), false)
-                .flatMap(discoveredSSDeep -> {
-                    DiscoveredThing thing = discoveredSSDeep.getDiscoveredThing();
-                    String term = thing.getTerm();
-                    // This will return zero to many new DiscoveredSSDeep entries for each query that the matching ssdeep hash appeared in.
-                    return localScoredMatches.get(term).stream().map(scoredPair -> new DiscoveredSSDeep(scoredPair, discoveredSSDeep.getDiscoveredThing()));
-                });
+        return getEnrichedDiscoveredSSDeepIterator(it, localScoredMatches);
+    }
 
-        return stream.iterator();
+    /**
+     *
+     * @param initialQueryResults an iterator of scored ssdeep pairs that represent the results of the initial ssdeep
+     *                            similarity query.
+     * @param scoredMatches used to capture the scored matches contained within the initialQueryResults
+     * @return the query string for the next stage of the query.
+     */
+    public static String captureScoredMatchesAndBuildQuery(Iterator<ScoredSSDeepPair> initialQueryResults, final Multimap<String, ScoredSSDeepPair> scoredMatches) {
+        // extract the matched ssdeeps from the query results and generate the discovery query.
+        /*
+        StringBuilder b = new StringBuilder();
+        Set<String> ssdeepSeen = new HashSet<>();
+        while (initialQueryResults.hasNext()) {
+            ScoredSSDeepPair result = initialQueryResults.next();
+            SSDeepHash matchingHash = result.getMatchingHash();
+            scoredMatches.put(matchingHash.toString(), result);
+            String ssdeep = matchingHash.toString();
+            if (ssdeepSeen.contains(ssdeep)) {
+                continue;
+            }
+            log.debug("Added new ssdeep " + ssdeep);
+            ssdeepSeen.add(ssdeep);
+            if (b.length() > 0) {
+                b.append(" OR ");
+            }
+            b.append("CHECKSUM_SSDEEP:\"").append(ssdeep).append("\"");
+        }
+        return b.toString();
+        */
+
+        return StreamSupport.stream(Spliterators.spliteratorUnknownSize(initialQueryResults, Spliterator.ORDERED), false)
+                .filter(queryResult -> scoredMatches.put(queryResult.getMatchingHash().toString(), queryResult))
+                .map(queryResult -> queryResult.getMatchingHash().toString())
+                .distinct()
+                .peek(ssdeep -> log.debug("Added new ssdeep " + ssdeep))
+                .map(ssdeep -> "CHECKSUM_SSDEEP:\"" + ssdeep + "\"")
+                .collect(Collectors.joining(" OR ", "", ""));
+    }
+
+    /** Given an iterator of DiscoveredSSDeep objects that have no matching query or weighted score, lookup the potential queries that returned
+     *  them and the weighted score associated with that query and use them to produce enriched results.
+     *
+     * @param resultsIterator an iterator of unenrched DiscoveredSSDeep's that don't have query or score info.
+     * @param scoredMatches the colletion of matchin hashes and the original queries that lead them to be returned.
+     * @return an iterator of DiscoveredSSDeep's enriched with the queries that returned them.
+     */
+    public static Iterator<DiscoveredSSDeep> getEnrichedDiscoveredSSDeepIterator(Iterator <DiscoveredSSDeep> resultsIterator, final Multimap<String, ScoredSSDeepPair> scoredMatches) {
+        return StreamSupport.stream(Spliterators.spliteratorUnknownSize(resultsIterator, Spliterator.ORDERED), false)
+                .flatMap(discoveredSSdeep -> enrichDiscoveredSSDeep(discoveredSSdeep, scoredMatches)).iterator();
+    }
+
+    /** Given a single discovered ssdeep, use the scoredMatches map to determine which queries it is related to.  This will return zero to many new DiscoveredSSDeep entries for each query that the matching ssdeep hash appeared in.
+     *
+     * @param discoveredSSDeep
+     * @param scoredMatches
+     * @return
+     */
+    public static Stream<DiscoveredSSDeep> enrichDiscoveredSSDeep(DiscoveredSSDeep discoveredSSDeep, final Multimap<String, ScoredSSDeepPair> scoredMatches) {
+        final DiscoveredThing discoveredThing = discoveredSSDeep.getDiscoveredThing();
+        final String term = discoveredThing.getTerm();
+        return scoredMatches.get(term).stream().map(scoredPair -> new DiscoveredSSDeep(scoredPair, discoveredThing));
     }
 }
