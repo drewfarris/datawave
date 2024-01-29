@@ -1,5 +1,6 @@
-package datawave.query.util.ssdeep;
+package datawave.query.tables.ssdeep;
 
+import datawave.ingest.util.ssdeep.SSDeepHash;
 import org.apache.commons.text.similarity.LevenshteinDistance;
 import org.apache.log4j.Logger;
 

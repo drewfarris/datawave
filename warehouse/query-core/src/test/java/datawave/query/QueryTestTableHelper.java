@@ -1,9 +1,8 @@
 package datawave.query;
 
 import datawave.accumulo.inmemory.InMemoryAccumuloClient;
-import datawave.ingest.mapreduce.handler.facet.FacetHandler;
+import datawave.helpers.PrintUtility;
 import datawave.ingest.mapreduce.handler.shard.ShardedDataTypeHandler;
-import datawave.ingest.table.config.FacetTableConfigHelper;
 import datawave.ingest.table.config.MetadataTableConfigHelper;
 import datawave.ingest.table.config.ShardTableConfigHelper;
 import datawave.ingest.table.config.TableConfigHelper;
@@ -34,21 +33,16 @@ import java.util.concurrent.TimeUnit;
 /**
  * Creates and configures tables that are commonly needed for queries
  */
-public final class QueryTestTableHelper {
+public class QueryTestTableHelper {
     
     public static final String METADATA_TABLE_NAME = "metadata";
     public static final String SHARD_DICT_INDEX_NAME = "shardTermDictionary";
     public static final String MODEL_TABLE_NAME = "DatawaveMetadata";
     
-    // TODO: elsewhere?
-    public static final String FACET_TABLE_NAME = "facet";
-    public static final String FACET_HASH_TABLE_NAME = "facetHash";
-    public static final String FACET_METADATA_TABLE_NAME = "facetMetadata";
-    
     private static final BatchWriterConfig bwCfg = new BatchWriterConfig().setMaxLatency(1, TimeUnit.SECONDS).setMaxMemory(1000L).setMaxWriteThreads(1);
     
     public final AccumuloClient client;
-    private final Logger log; // passed in for context when debugging
+    protected final Logger log; // passed in for context when debugging
     
     public QueryTestTableHelper(AccumuloClient client, Logger log) throws AccumuloSecurityException, AccumuloException, TableExistsException,
                     TableNotFoundException {
@@ -83,12 +77,6 @@ public final class QueryTestTableHelper {
             dumpTable(TableName.SHARD_RINDEX, auths);
             dumpTable(SHARD_DICT_INDEX_NAME, auths);
             dumpTable(MODEL_TABLE_NAME, auths);
-            
-            // TODO: elsewhere?
-            dumpTable(FACET_TABLE_NAME, auths);
-            dumpTable(FACET_HASH_TABLE_NAME, auths);
-            dumpTable(FACET_METADATA_TABLE_NAME, auths);
-            
         } catch (TableNotFoundException e) {
             // should not happen
             throw new IllegalArgumentException(e);
@@ -107,7 +95,14 @@ public final class QueryTestTableHelper {
         scanner.close();
     }
     
-    private void createTables() throws AccumuloSecurityException, AccumuloException, TableNotFoundException, TableExistsException {
+    public void printTables(Authorizations auths) throws TableNotFoundException {
+        PrintUtility.printTable(client, auths, QueryTestTableHelper.METADATA_TABLE_NAME);
+        PrintUtility.printTable(client, auths, TableName.SHARD);
+        PrintUtility.printTable(client, auths, TableName.SHARD_INDEX);
+        PrintUtility.printTable(client, auths, TableName.SHARD_RINDEX);
+    }
+    
+    protected void createTables() throws AccumuloSecurityException, AccumuloException, TableNotFoundException, TableExistsException {
         TableOperations tops = client.tableOperations();
         deleteAndCreateTable(tops, METADATA_TABLE_NAME);
         deleteAndCreateTable(tops, TableName.DATE_INDEX);
@@ -117,15 +112,9 @@ public final class QueryTestTableHelper {
         deleteAndCreateTable(tops, TableName.SHARD_RINDEX);
         deleteAndCreateTable(tops, SHARD_DICT_INDEX_NAME);
         deleteAndCreateTable(tops, MODEL_TABLE_NAME);
-        
-        // TODO: move these elsewhere?
-        deleteAndCreateTable(tops, FACET_TABLE_NAME);
-        deleteAndCreateTable(tops, FACET_HASH_TABLE_NAME);
-        deleteAndCreateTable(tops, FACET_METADATA_TABLE_NAME);
-        
     }
     
-    private void deleteAndCreateTable(TableOperations tops, String tableName) throws AccumuloException, AccumuloSecurityException, TableNotFoundException,
+    protected void deleteAndCreateTable(TableOperations tops, String tableName) throws AccumuloException, AccumuloSecurityException, TableNotFoundException,
                     TableExistsException {
         if (tops.exists(tableName)) {
             tops.delete(tableName);
@@ -152,15 +141,10 @@ public final class QueryTestTableHelper {
         configureAShardRelatedTable(writer, new ShardTableConfigHelper(), ShardedDataTypeHandler.SHARD_GRIDX_TNAME, TableName.SHARD_RINDEX);
         configureAShardRelatedTable(writer, new ShardTableConfigHelper(), ShardedDataTypeHandler.SHARD_DINDX_NAME, SHARD_DICT_INDEX_NAME);
         
-        // TODO: move this elsewhere?
-        configureAShardRelatedTable(writer, new FacetTableConfigHelper(), FacetHandler.FACET_TABLE_NAME, FACET_TABLE_NAME);
-        configureAShardRelatedTable(writer, new FacetTableConfigHelper(), FacetHandler.FACET_METADATA_TABLE_NAME, FACET_METADATA_TABLE_NAME);
-        configureAShardRelatedTable(writer, new FacetTableConfigHelper(), FacetHandler.FACET_HASH_TABLE_NAME, FACET_HASH_TABLE_NAME);
-        
         // todo - configure the other tables...
     }
     
-    private void configureAShardRelatedTable(MockAccumuloRecordWriter writer, TableConfigHelper helper, String keyForTableName, String tableName)
+    protected void configureAShardRelatedTable(MockAccumuloRecordWriter writer, TableConfigHelper helper, String keyForTableName, String tableName)
                     throws AccumuloException, AccumuloSecurityException, TableNotFoundException {
         log.debug("---------------  configure table (" + keyForTableName + ")  ---------------");
         Configuration tableConfig = new Configuration();

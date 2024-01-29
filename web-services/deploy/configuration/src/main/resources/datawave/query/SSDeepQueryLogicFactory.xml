@@ -6,7 +6,7 @@
     http://www.springframework.org/schema/beans/spring-beans-4.0.xsd">
 
     <!-- Query Logic that returns document content -->
-    <bean id="SSDeepSimilarityQuery" parent="baseQueryLogic" scope="prototype"  class="datawave.query.tables.SSDeepSimilarityQueryLogic">
+    <bean id="SSDeepSimilarityQuery" parent="baseQueryLogic" scope="prototype"  class="datawave.query.tables.ssdeep.SSDeepSimilarityQueryLogic">
         <property name="tableName" value="ssdeepIndex" />
         <property name="maxResults" value="-1" />
         <property name="maxWork" value="-1" />
@@ -17,5 +17,28 @@
         <property name="bucketEncodingBase" value="32" />
         <property name="bucketEncodingLength" value="2" />
         <property name="logicDescription" value="Query that will retrieve similar ssdeep hashes" />
+    </bean>
+
+    <bean id="SSDeepDiscoveryQuery" parent="baseQueryLogic" scope="prototype" class="datawave.query.tables.ssdeep.SSdeepDiscoveryQueryTable">
+        <property name="tableName" value="ssdeepIndex" />
+        <property name="logic1">
+            <bean parent="SSDeepSimilarityQuery">
+                <property name="logicDescription" value="Initial SSDeep Similarity Query" />
+            </bean>
+        </property>
+        <property name="logic2">
+            <bean parent="DiscoveryQuery">
+                <property name="auditType" value="NONE" />
+                <property name="logicDescription" value="Follow-on SSDeep Discovery Query" />
+            </bean>
+        </property>
+        <property name="chainStrategy">
+            <bean id="SSDeepDiscoveryStreamedChainStrategy" class="datawave.query.tables.ssdeep.StreamingSSDeepDiscoveryChainStrategy">
+                <!--<property name="resultsToBuffer" value="128" />-->
+            </bean>
+        </property>
+
+        <property name="auditType" value="NONE" />
+        <property name="logicDescription" value="Query for events that are similar to query ssdeep checksum hashes" />
     </bean>
 </beans>

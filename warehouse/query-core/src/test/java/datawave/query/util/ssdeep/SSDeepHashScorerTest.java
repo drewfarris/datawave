@@ -1,5 +1,7 @@
 package datawave.query.util.ssdeep;
 
+import datawave.ingest.util.ssdeep.SSDeepHash;
+import datawave.query.tables.ssdeep.SSDeepHashScorer;
 import org.junit.Assert;
 import org.junit.Test;
 
