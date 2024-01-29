@@ -58,8 +58,6 @@ public class ChainedSSDeepQueriesTest extends AbstractFunctionalQuery {
 
     SSDeepSimilarityQueryLogic similarityQueryLogic;
 
-    SSDeepScoredSimilarityQueryLogic scoredSimilarityQueryLogic;
-
     SSDeepDiscoveryQueryLogic discoveryQueryLogic;
 
     ShardQueryLogic eventQueryLogic;
@@ -97,14 +95,6 @@ public class ChainedSSDeepQueriesTest extends AbstractFunctionalQuery {
         similarityQueryLogic.setBucketEncodingLength(BUCKET_ENCODING_LENGTH);
         similarityQueryLogic.setIndexBuckets(BUCKET_COUNT);
 
-        scoredSimilarityQueryLogic = new SSDeepScoredSimilarityQueryLogic();
-        scoredSimilarityQueryLogic.setTableName("ssdeepIndex");
-        scoredSimilarityQueryLogic.setMarkingFunctions(markingFunctions);
-        scoredSimilarityQueryLogic.setResponseObjectFactory(responseFactory);
-        scoredSimilarityQueryLogic.setBucketEncodingBase(BUCKET_ENCODING_BASE);
-        scoredSimilarityQueryLogic.setBucketEncodingLength(BUCKET_ENCODING_LENGTH);
-        scoredSimilarityQueryLogic.setIndexBuckets(BUCKET_COUNT);
-
         discoveryQueryLogic = new SSDeepDiscoveryQueryLogic();
         discoveryQueryLogic.setTableName("shardIndex");
         discoveryQueryLogic.setIndexTableName("shardIndex");
@@ -136,7 +126,7 @@ public class ChainedSSDeepQueriesTest extends AbstractFunctionalQuery {
         // also eliminate duplication in FullSSDeepDiscoveryChainStrategy and FullSSDeepEventChainStrategy.
         similarityDiscoveryQueryLogic = new SSDeepChainedDiscoveryQueryLogic();
         similarityDiscoveryQueryLogic.setTableName("ssdeepIndex");
-        similarityDiscoveryQueryLogic.setLogic1(scoredSimilarityQueryLogic);
+        similarityDiscoveryQueryLogic.setLogic1(similarityQueryLogic);
         similarityDiscoveryQueryLogic.setLogic2(discoveryQueryLogic);
         similarityDiscoveryQueryLogic.setChainStrategy(ssdeepDiscoveryChainStrategy);
 
@@ -144,7 +134,7 @@ public class ChainedSSDeepQueriesTest extends AbstractFunctionalQuery {
 
         similarityEventQueryLogic = new SSDeepChainedEventQueryLogic();
         similarityEventQueryLogic.setTableName("ssdeepIndex");
-        similarityEventQueryLogic.setLogic1(scoredSimilarityQueryLogic);
+        similarityEventQueryLogic.setLogic1(similarityQueryLogic);
         similarityEventQueryLogic.setLogic2(eventQueryLogic);
         similarityEventQueryLogic.setChainStrategy(ssdeepEventChainStrategy);
 
@@ -173,20 +163,6 @@ public class ChainedSSDeepQueriesTest extends AbstractFunctionalQuery {
         String testSSDeep = "384:nv/fP9FmWVMdRFj2aTgSO+u5QT4ZE1PIVS:nDmWOdRFNTTs504cQS";
         String query = "CHECKSUM_SSDEEP:" + testSSDeep;
         EventQueryResponseBase response = runSSDeepQuery(query, similarityQueryLogic, 0);
-
-        List<EventBase> events = response.getEvents();
-        Assert.assertEquals(1, events.size());
-        Map<String,Map<String,String>> observedEvents = extractObservedEvents(events);
-
-        SSDeepTestUtil.assertSSDeepSimilarityMatch(testSSDeep, testSSDeep, "38.0", "1", "100", observedEvents);
-    }
-
-    @Test
-    public void testScoredSSDeepSimilarity() throws Exception {
-        log.info("------ testScoredSSDeepSimilarity ------");
-        String testSSDeep = "384:nv/fP9FmWVMdRFj2aTgSO+u5QT4ZE1PIVS:nDmWOdRFNTTs504cQS";
-        String query = "CHECKSUM_SSDEEP:" + testSSDeep;
-        EventQueryResponseBase response = runSSDeepQuery(query, scoredSimilarityQueryLogic, 0);
 
         List<EventBase> events = response.getEvents();
         Assert.assertEquals(1, events.size());

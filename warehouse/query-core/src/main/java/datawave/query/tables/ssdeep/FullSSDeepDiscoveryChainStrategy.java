@@ -2,7 +2,6 @@ package datawave.query.tables.ssdeep;
 
 import com.google.common.collect.Multimap;
 import com.google.common.collect.TreeMultimap;
-import datawave.ingest.mapreduce.handler.ssdeep.SSDeepHash;
 import datawave.query.discovery.DiscoveredThing;
 import datawave.query.tables.chained.strategy.FullChainStrategy;
 import datawave.webservice.query.Query;

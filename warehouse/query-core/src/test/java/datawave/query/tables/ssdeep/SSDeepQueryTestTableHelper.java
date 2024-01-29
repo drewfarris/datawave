@@ -1,7 +1,7 @@
 package datawave.query.tables.ssdeep;
 
 import datawave.helpers.PrintUtility;
-import datawave.ingest.mapreduce.handler.ssdeep.SSDeepIndexHandler;
+import datawave.ingest.util.ssdeep.SSDeepIndexHandler;
 import datawave.ingest.table.config.SSDeepIndexTableConfigHelper;
 import datawave.query.MockAccumuloRecordWriter;
 import datawave.query.QueryTestTableHelper;

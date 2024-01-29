@@ -1,6 +1,6 @@
 package datawave.query.tables.ssdeep;
 
-import datawave.ingest.mapreduce.handler.ssdeep.SSDeepHash;
+import datawave.ingest.util.ssdeep.SSDeepHash;
 import datawave.query.tables.chained.strategy.FullChainStrategy;
 import datawave.webservice.query.Query;
 import datawave.webservice.query.QueryImpl;

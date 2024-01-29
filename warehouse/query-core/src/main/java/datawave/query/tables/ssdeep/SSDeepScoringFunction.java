@@ -1,11 +1,10 @@
 package datawave.query.tables.ssdeep;
 
 import com.google.common.collect.Multimap;
-import datawave.ingest.mapreduce.handler.ssdeep.ChunkSizeEncoding;
-import datawave.ingest.mapreduce.handler.ssdeep.IntegerEncoding;
-import datawave.ingest.mapreduce.handler.ssdeep.NGramTuple;
-import datawave.ingest.mapreduce.handler.ssdeep.SSDeepHash;
-import datawave.ingest.mapreduce.handler.ssdeep.SSDeepHashScorer;
+import datawave.ingest.util.ssdeep.ChunkSizeEncoding;
+import datawave.ingest.util.ssdeep.IntegerEncoding;
+import datawave.ingest.util.ssdeep.NGramTuple;
+import datawave.ingest.util.ssdeep.SSDeepHash;
 import datawave.query.config.SSDeepSimilarityQueryConfiguration;
 import datawave.webservice.query.Query;
 import datawave.webservice.query.QueryImpl;

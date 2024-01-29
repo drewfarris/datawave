@@ -1,4 +1,4 @@
-package datawave.ingest.mapreduce.handler.ssdeep;
+package datawave.ingest.util.ssdeep;
 
 import java.io.Serializable;
 
