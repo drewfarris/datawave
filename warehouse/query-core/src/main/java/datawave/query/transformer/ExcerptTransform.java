@@ -14,6 +14,7 @@ import java.util.Set;
 
 import javax.annotation.Nullable;
 
+import datawave.query.postprocessing.tf.PhraseOffset;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.PartialKey;
 import org.apache.accumulo.core.data.Range;
@@ -21,7 +22,6 @@ import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.iterators.IteratorEnvironment;
 import org.apache.accumulo.core.iterators.SortedKeyValueIterator;
 import org.apache.log4j.Logger;
-import org.javatuples.Triplet;
 
 import com.google.common.collect.Iterators;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -49,7 +49,7 @@ public class ExcerptTransform extends DocumentTransform.DefaultDocumentTransform
     public static final String HIT_EXCERPT_WITH_SCORES = "HIT_EXCERPT_WITH_SCORES";
     public static final String HIT_EXCERPT_ONE_BEST = "HIT_EXCERPT_ONE_BEST";
 
-    private final Map<String,String> excerptIteratorOptions = new HashMap<>();
+    //private final Map<String,String> excerptIteratorOptions = new HashMap<>();
     private final TermFrequencyExcerptIterator excerptIterator;
     private final ExcerptFields excerptFields;
     private final IteratorEnvironment env;
@@ -278,19 +278,19 @@ public class ExcerptTransform extends DocumentTransform.DefaultDocumentTransform
      * @return the excerpts
      */
     private Set<Excerpt> getExcerpts(PhraseIndexes phraseIndexes) {
-        phraseIndexes = getOffsetPhraseIndexes(phraseIndexes);
-        if (phraseIndexes.isEmpty()) {
+        final PhraseIndexes offsetPhraseIndexes = getOffsetPhraseIndexes(phraseIndexes);
+        if (offsetPhraseIndexes.isEmpty()) {
             return Collections.emptySet();
         }
 
         // Fetch the excerpts.
         Set<Excerpt> excerpts = new HashSet<>();
-        for (String field : phraseIndexes.getFields()) {
-            Collection<Triplet<String,Integer,Integer>> indexes = phraseIndexes.getIndices(field);
-            for (Triplet<String,Integer,Integer> indexPair : indexes) {
-                String eventId = indexPair.getValue0();
-                int start = indexPair.getValue1();
-                int end = indexPair.getValue2();
+        for (String field : offsetPhraseIndexes.getFields()) {
+            Collection<PhraseOffset> indexes = offsetPhraseIndexes.getPhraseOffsets(field);
+            for (PhraseOffset phraseOffset : indexes) {
+                String eventId = phraseOffset.getEventId();
+                int start = phraseOffset.getStartOffset();
+                int end = phraseOffset.getEndOffset();
                 if (log.isTraceEnabled()) {
                     log.trace("Fetching excerpt [" + start + "," + end + "] for field " + field + " for document " + eventId.replace('\u0000', '/'));
                 }
@@ -341,31 +341,33 @@ public class ExcerptTransform extends DocumentTransform.DefaultDocumentTransform
         }
         float origHalfSize = (float) (end - start) / 2;
         int expandSize = 20;
+
+        final Map<String,String> excerptIteratorOptions = new HashMap<>();
         excerptIteratorOptions.put(TermFrequencyExcerptIterator.FIELD_NAME, field);
-        int i = 0;
-        while (i <= 1) {
-            // set the start of the range
-            if (i == 0) {
+
+        int attempt = 0; // we'll try to run this twice. If the first attempt fails, we'll run the second attempt with a greater allowed range.
+        while (attempt <= 1) {
+            if (attempt == 0) {
+                // on the first attempt just use the start and end offsets provided.
                 excerptIteratorOptions.put(TermFrequencyExcerptIterator.START_OFFSET, String.valueOf(start));
+                excerptIteratorOptions.put(TermFrequencyExcerptIterator.END_OFFSET, String.valueOf(end));
             } else {
+                // on the second attempt, set the start and end the range to include up to expandSize terms prior to
+                // the start offset and after the end offset.
                 if (start - expandSize > 0) {
                     excerptIteratorOptions.put(TermFrequencyExcerptIterator.START_OFFSET, String.valueOf(start - expandSize));
                 } else {
                     excerptIteratorOptions.put(TermFrequencyExcerptIterator.START_OFFSET, String.valueOf(0));
                 }
-            }
-            if (i == 0) {
-                excerptIteratorOptions.put(TermFrequencyExcerptIterator.END_OFFSET, String.valueOf(end));
-            } else {
-                // set the end of the range
                 excerptIteratorOptions.put(TermFrequencyExcerptIterator.END_OFFSET, String.valueOf(end + expandSize));
             }
+
             try {
                 excerptIterator.init(source, excerptIteratorOptions, env);
                 excerptIterator.setHitTermsList(hitTermValues);
                 excerptIterator.setDirection(excerptFields.getDirection(field).toUpperCase().trim());
                 excerptIterator.setOrigHalfSize(origHalfSize);
-                if (i != 0) {
+                if (attempt == 1) {
                     excerptIterator.setTrim(true);
                 }
                 excerptIterator.seek(range, Collections.emptyList(), false);
@@ -381,7 +383,7 @@ public class ExcerptTransform extends DocumentTransform.DefaultDocumentTransform
                     }
 
                     // if we have reached the limit of times to try, or we have no stop words removed
-                    if (i == 1 || !parts[1].equals("XXXWESKIPPEDAWORDXXX")) {
+                    if (attempt == 1 || !parts[1].equals("XXXWESKIPPEDAWORDXXX")) {
                         return parts[1] + Constants.NULL + parts[2] + Constants.NULL + parts[3];
                     }
                 } else {
@@ -390,7 +392,7 @@ public class ExcerptTransform extends DocumentTransform.DefaultDocumentTransform
             } catch (IOException e) {
                 throw new RuntimeException("Failed to scan for excerpt [" + start + "," + end + "] for field " + field + " within range " + range, e);
             }
-            i++;
+            attempt++;
         }
         // it should always return from inside the loop so if this is reached something went very wrong
         throw new RuntimeException("This should never be reached. Something went wrong!");
@@ -408,14 +410,14 @@ public class ExcerptTransform extends DocumentTransform.DefaultDocumentTransform
         PhraseIndexes offsetPhraseIndexes = new PhraseIndexes();
         for (String field : excerptFields.getFields()) {
             // Filter out phrases that are not in desired fields.
-            Collection<Triplet<String,Integer,Integer>> indexes = phraseIndexes.getIndices(field);
+            Collection<PhraseOffset> indexes = phraseIndexes.getPhraseOffsets(field);
             if (indexes != null) {
                 int offset = excerptFields.getOffset(field);
                 // Ensure the offset is modified to encompass the target excerpt range.
-                for (Triplet<String,Integer,Integer> indexPair : indexes) {
-                    String eventId = indexPair.getValue0();
-                    int start = indexPair.getValue1() <= offset ? 0 : indexPair.getValue1() - offset;
-                    int end = indexPair.getValue2() + offset + 1; // Add 1 here to offset the non-inclusive end of the range that will be used when scanning.
+                for (PhraseOffset indexPair : indexes) {
+                    String eventId = indexPair.getEventId();
+                    int start = indexPair.getStartOffset() <= offset ? 0 : indexPair.getStartOffset() - offset;
+                    int end = indexPair.getEndOffset() + offset + 1; // Add 1 here to offset the non-inclusive end of the range that will be used when scanning.
                     offsetPhraseIndexes.addIndexTriplet(field, eventId, start, end);
                 }
             }

@@ -5,8 +5,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
-import org.javatuples.Pair;
-import org.javatuples.Triplet;
+import datawave.query.postprocessing.tf.PhraseOffset;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -375,10 +374,10 @@ public class ContentOrderedEvaluatorTest {
         Assert.assertEquals("Expected evaluate() to return " + expected, expected, evaluator.evaluate(field, eventId, offsets));
     }
 
-    private void assertPhraseOffsetsContain(String field, int startOffset, int endOffset) {
-        Collection<Triplet<String,Integer,Integer>> phraseOffsets = termOffsetMap.getPhraseIndexes(field);
+    private void assertPhraseOffsetsContain(String field, final int startOffset, final int endOffset) {
+        Collection<PhraseOffset> phraseOffsets = termOffsetMap.getPhraseIndexes(field);
         boolean found = phraseOffsets.stream()
-                        .anyMatch((pair) -> pair.getValue0().equals(eventId) && pair.getValue1().equals(startOffset) && pair.getValue2().equals(endOffset));
+                        .anyMatch((pair) -> pair.getEventId().equals(eventId) && pair.getStartOffset() == startOffset && pair.getEndOffset() == endOffset);
         Assert.assertTrue(
                         "Expected phrase offset [" + startOffset + ", " + endOffset + "] for field " + field + " and eventId " + eventId.replace('\u0000', '/'),
                         found);

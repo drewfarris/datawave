@@ -35,6 +35,8 @@ import datawave.query.Constants;
 public class TermFrequencyExcerptIterator implements SortedKeyValueIterator<Key,Value>, OptionDescriber {
     private static final Logger log = Logger.getLogger(TermFrequencyExcerptIterator.class);
     private static final Joiner joiner = Joiner.on(" ").skipNulls();
+    private static final Collection<ByteSequence> TERM_FREQUENCY_COLUMN_FAMILY_BYTE_SEQUENCE =
+            Collections.singleton(new ArrayByteSequence(Constants.TERM_FREQUENCY_COLUMN_FAMILY.getBytes()));
 
     // The field name option
     public static final String FIELD_NAME = "field.name";
@@ -69,13 +71,16 @@ public class TermFrequencyExcerptIterator implements SortedKeyValueIterator<Key,
     // the list of hit terms
     protected ArrayList<String> hitTermsList;
     // the direction for the excerpt
-    private String direction;
+    private Direction direction;
 
     private boolean trim;
 
-    private static final String BEFORE = "BEFORE";
-    private static final String AFTER = "AFTER";
-    private static final String BOTH = "BOTH";
+    private enum Direction {
+        BEFORE,
+        AFTER,
+        BOTH
+    };
+
     private static final String XXXWESKIPPEDAWORDXXX = "XXXWESKIPPEDAWORDXXX";
 
     @Override
@@ -148,7 +153,7 @@ public class TermFrequencyExcerptIterator implements SortedKeyValueIterator<Key,
         this.endOffset = Integer.parseInt(options.get(END_OFFSET));
         this.fieldName = options.get(FIELD_NAME);
         hitTermsList = new ArrayList<>();
-        direction = BOTH;
+        direction = Direction.BOTH;
         origHalfSize = 0;
         trim = false;
     }
@@ -199,7 +204,7 @@ public class TermFrequencyExcerptIterator implements SortedKeyValueIterator<Key,
             }
         }
         if (log.isDebugEnabled()) {
-            log.debug(this + " seek'ing to start key: " + startKey);
+            log.debug(this + " calling seek to start key: " + startKey);
         }
 
         // Determine the end key in the term frequencies
@@ -243,7 +248,7 @@ public class TermFrequencyExcerptIterator implements SortedKeyValueIterator<Key,
         }
 
         // seek the underlying source
-        source.seek(this.scanRange, Collections.singleton(new ArrayByteSequence(Constants.TERM_FREQUENCY_COLUMN_FAMILY.getBytes())), true);
+        source.seek(this.scanRange, TERM_FREQUENCY_COLUMN_FAMILY_BYTE_SEQUENCE, true);
 
         // get the next key
         next();
@@ -255,7 +260,7 @@ public class TermFrequencyExcerptIterator implements SortedKeyValueIterator<Key,
         tv = null;
 
         if (log.isTraceEnabled()) {
-            log.trace(source.hasTop() + " next'ing on " + scanRange);
+            log.trace(source.hasTop() + " calling next on " + scanRange);
         }
 
         // find a valid dt/uid (depends on initial column families set in seek call)
@@ -280,8 +285,9 @@ public class TermFrequencyExcerptIterator implements SortedKeyValueIterator<Key,
         Text cv = top.getColumnVisibility();
         long ts = top.getTimestamp();
         Text row = top.getRow();
-        // set the size of the array to the amount of terms we need to choose
-        WordsAndScores[] terms = new WordsAndScores[endOffset - startOffset];
+
+        // set the size of the array to the number of words and scores we need to choose
+        WordsAndScores[] wordsAndScores = new WordsAndScores[endOffset - startOffset];
         boolean stopFound;
 
         if (dtUid == null) {
@@ -300,18 +306,23 @@ public class TermFrequencyExcerptIterator implements SortedKeyValueIterator<Key,
                 try {
                     // parse the offsets from the value
                     TermWeight.Info info = TermWeight.Info.parseFrom(source.getTopValue().get());
+
                     // check if the number of scores is equal to the number of offsets
                     boolean useScores = info.getScoreCount() == info.getTermOffsetCount();
-                    boolean hasOnlyNegativeScores = true;
                     List<Integer> scoreList = info.getScoreList();
-                    for (Integer integer : scoreList) {
-                        if (integer >= 0) {
-                            hasOnlyNegativeScores = false;
-                            break;
+                    if (useScores) {
+                        boolean hasOnlyNegativeScores = true;
+                        for (Integer integer : scoreList) {
+                            if (integer >= 0) {
+                                hasOnlyNegativeScores = false;
+                                break;
+                            }
                         }
+                        // don't use scores if they're only negative
+                        useScores = !hasOnlyNegativeScores;
                     }
 
-                    // for each offset, gather all the terms in our range
+                    // for each offset, gather all the wordsAndScores in our range
                     for (int i = 0; i < info.getTermOffsetCount(); i++) {
                         int offset = info.getTermOffset(i);
                         // if the offset is within our range
@@ -319,15 +330,16 @@ public class TermFrequencyExcerptIterator implements SortedKeyValueIterator<Key,
                             // calculate the index in our value list
                             int index = offset - startOffset;
                             // if the current index has no words/scores yet, initialize an object at the index
-                            if (terms[index] == null) {
-                                terms[index] = new WordsAndScores();
+                            if (wordsAndScores[index] == null) {
+                                wordsAndScores[index] = new WordsAndScores();
                             }
                             // if we are using scores, add the word and score to the object, if not then only add the word
-                            if (useScores && !hasOnlyNegativeScores) {
-                                stopFound = terms[index].addTerm(fieldAndValue[1], scoreList.get(i), hitTermsList);
+                            if (useScores) {
+                                stopFound = wordsAndScores[index].addTerm(fieldAndValue[1], scoreList.get(i), hitTermsList);
                             } else {
-                                stopFound = terms[index].addTerm(fieldAndValue[1], hitTermsList);
+                                stopFound = wordsAndScores[index].addTerm(fieldAndValue[1], hitTermsList);
                             }
+
                             if (stopFound && !trim) {
                                 tk = new Key(row, new Text(dtUid), new Text(fieldName + Constants.NULL + XXXWESKIPPEDAWORDXXX + Constants.NULL
                                                 + XXXWESKIPPEDAWORDXXX + Constants.NULL + XXXWESKIPPEDAWORDXXX), cv, ts);
@@ -345,10 +357,10 @@ public class TermFrequencyExcerptIterator implements SortedKeyValueIterator<Key,
             source.next();
         }
         // generate the return key and value
-        String phraseWithScores = generatePhrase(terms);
+        String phraseWithScores = generatePhrase(wordsAndScores);
         boolean usedScores = false;
         // check to see if we have something scored and if so, turn off outputting the scores
-        for (WordsAndScores term : terms) {
+        for (WordsAndScores term : wordsAndScores) {
             if (term == null) {
                 continue;
             }
@@ -357,20 +369,20 @@ public class TermFrequencyExcerptIterator implements SortedKeyValueIterator<Key,
                 term.setOutputScores(false);
             }
         }
-        String phraseWithoutScores = generatePhrase(terms);
+        String phraseWithoutScores = generatePhrase(wordsAndScores);
         String oneBestExcerpt;
         // if not scored, we won't output anything for these two parts
         if (!usedScores && startOffset < endOffset && !phraseWithScores.isEmpty()) {
             phraseWithScores = "XXXNOTSCOREDXXX";
             oneBestExcerpt = "XXXNOTSCOREDXXX";
         } else {
-            for (WordsAndScores term : terms) {
+            for (WordsAndScores term : wordsAndScores) {
                 if (term == null) {
                     continue;
                 }
                 term.setOneBestExcerpt(true);
             }
-            oneBestExcerpt = generatePhrase(terms);
+            oneBestExcerpt = generatePhrase(wordsAndScores);
         }
 
         tk = new Key(row, new Text(dtUid),
@@ -391,8 +403,8 @@ public class TermFrequencyExcerptIterator implements SortedKeyValueIterator<Key,
         overrideOutputLongest(terms);
         // create an array with the same length as the one we just passed in
         String[] termsToOutput = new String[terms.length];
-        boolean bef = direction.equals(BEFORE);
-        boolean aft = direction.equals(AFTER);
+        boolean bef = direction.equals(Direction.BEFORE);
+        boolean aft = direction.equals(Direction.AFTER);
         boolean lock = false;
         int beforeIndex = -1;
         int afterIndex = -1;
@@ -763,7 +775,7 @@ public class TermFrequencyExcerptIterator implements SortedKeyValueIterator<Key,
     }
 
     public void setDirection(String direction) {
-        this.direction = direction;
+        this.direction = Direction.valueOf(direction);
     }
 
     public void setOrigHalfSize(float origHalfSize) {

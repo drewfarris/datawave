@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import datawave.query.postprocessing.tf.PhraseOffset;
 import org.apache.commons.jexl3.JexlBuilder;
 import org.apache.commons.jexl3.JexlContext;
 import org.apache.commons.jexl3.JexlException;
@@ -24,7 +25,6 @@ import org.apache.commons.jexl3.parser.ASTJexlScript;
 import org.apache.commons.jexl3.parser.JexlNode;
 import org.apache.commons.jexl3.parser.ParseException;
 import org.apache.log4j.Logger;
-import org.javatuples.Triplet;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.BeforeClass;
@@ -164,10 +164,10 @@ public class ContentFunctionsTest {
                         .build();
     }
 
-    private void assertPhraseOffset(String field, int startOffset, int endOffset) {
-        Collection<Triplet<String,Integer,Integer>> phraseOffsets = termOffSetMap.getPhraseIndexes(field);
+    private void assertPhraseOffset(String field, final int startOffset, final int endOffset) {
+        Collection<PhraseOffset> phraseOffsets = termOffSetMap.getPhraseIndexes(field);
         boolean found = phraseOffsets.stream()
-                        .anyMatch((pair) -> pair.getValue0().equals(eventId) && pair.getValue1().equals(startOffset) && pair.getValue2().equals(endOffset));
+                        .anyMatch((pair) -> pair.getEventId().equals(eventId) && pair.getStartOffset() == startOffset && pair.getEndOffset() == endOffset);
         Assert.assertTrue(
                         "Expected phrase offset [" + startOffset + ", " + endOffset + "] for field " + field + " and eventId " + eventId.replace('\u0000', '/'),
                         found);
