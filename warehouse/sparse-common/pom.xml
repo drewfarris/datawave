@@ -14,11 +14,6 @@
     </properties>
     <dependencies>
         <dependency>
-            <groupId>com.microsoft.onnxruntime</groupId>
-            <artifactId>onnxruntime</artifactId>
-            <version>1.17.0</version>
-        </dependency>
-        <dependency>
             <groupId>ai.djl</groupId>
             <artifactId>api</artifactId>
             <version>0.21.0</version>
@@ -29,9 +24,37 @@
             <version>0.21.0</version>
         </dependency>
         <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>onnxruntime</artifactId>
+            <version>1.17.0</version>
+        </dependency>
+        <!--
+        <dependency>
             <groupId>gov.nsa.datawave</groupId>
             <artifactId>datawave-core</artifactId>
             <version>${project.version}</version>
+        </dependency>
+        -->
+        <dependency>
+            <groupId>commons-io</groupId>
+            <artifactId>commons-io</artifactId>
+            <version>2.11.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>gov.nsa.datawave.sparse</groupId>
+            <artifactId>splade-pp-ed-optimized</artifactId>
+            <version>1</version>
+            <type>onnx</type>
+        </dependency>
+        <dependency>
+            <groupId>gov.nsa.datawave.sparse</groupId>
+            <artifactId>splade-pp-ed-vocab</artifactId>
+            <version>1</version>
+            <type>txt</type>
         </dependency>
         <dependency>
             <groupId>junit</groupId>
@@ -43,5 +66,36 @@
             <artifactId>junit-jupiter-engine</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.apache.lucene</groupId>
+            <artifactId>lucene-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-params</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <execution>
+                        <id>install-models</id>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <phase>validate</phase>
+                        <configuration>
+                            <includeArtifactIds>splade-pp-ed-optimized,splade-pp-ed-vocab</includeArtifactIds>
+                            <outputDirectory>${project.build.directory}/models</outputDirectory>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

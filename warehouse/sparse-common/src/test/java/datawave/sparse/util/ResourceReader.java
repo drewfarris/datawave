@@ -1,0 +1,180 @@
+package datawave.sparse.util;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.JarURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+import javax.annotation.Nullable;
+
+/**
+ * This class reads a resource with utilities to read those with common names
+ */
+public class ResourceReader {
+
+    private static final Logger logger = LoggerFactory.getLogger(ResourceReader.class);
+
+    public static final String CLASS_SUFFIX = ".class";
+
+    /**
+     * Create a resource reader for use
+     */
+    public ResourceReader() {}
+
+    /**
+     * Get the resource name
+     */
+    public String getResourceName(Class<?> c) {
+        return c.getName().replace('.', '/');
+    }
+
+    /**
+     * Get the specified resource
+     * 
+     * @param name name of resource
+     * @return stream, caller must close
+     */
+    public InputStream getResourceAsStream(@Nullable String name) {
+        if (name != null && name.length() > 1 && name.charAt(1) == ':') {
+            name = name.substring(2);
+        }
+        return Thread.currentThread().getContextClassLoader().getResourceAsStream(name);
+    }
+
+    /**
+     * Indicate the URL that the specified class was loaded from
+     * 
+     * @param c the class
+     * @return a URL indicating the jar file or file location or null if none
+     */
+    @Nullable
+    public URL which(@Nullable Class<?> c) {
+        if (c == null) {
+            return null;
+        }
+        String cx = getResourceName(c) + CLASS_SUFFIX;
+        ClassLoader loader = c.getClassLoader();
+        if (loader != null) {
+            return loader.getResource(cx);
+        }
+        return ClassLoader.getSystemResource(cx);
+    }
+
+    /**
+     * Find all the resources present for the specified class that use the indicated suffix.
+     * 
+     * @param c the class
+     * @param suffix the resource suffix to hunt for, use "" for all
+     * @return sorted list of resources found or an empty list if none
+     */
+    public List<String> findResourcesFor(Class<?> c, String suffix) {
+        List<String> results = new ArrayList<>();
+        URL url = which(c);
+        if (url == null) {
+            return results;
+        }
+
+        if (url.getProtocol().equals("jar")) {
+            results.addAll(getJarResourcesFor(c, url, suffix));
+        } else if (url.getProtocol().equals("file")) {
+            results.addAll(getFileResourcesFor(c, url, suffix));
+        }
+
+        Collections.sort(results);
+        return results;
+    }
+
+    /**
+     * Find resources for the specified class from the Jar URL This finds resources at multiple levels at ones. For example
+     * if you pass in emissary.util.Version.class with the ".cfg" suffix, you could get back resources that are located at
+     * emissary/util/Version.cfg and emissary/util/Version/foo.cfg in the list.
+     * 
+     * @param c the class
+     * @param url the jar url
+     * @param suffix the ending suffix of desired resources
+     * @return list of resources found
+     */
+    public List<String> getJarResourcesFor(Class<?> c, URL url, String suffix) {
+        List<String> results = new ArrayList<>();
+        try {
+            JarURLConnection jc = (JarURLConnection) url.openConnection();
+            JarFile jf = jc.getJarFile();
+            String classMatch = getResourceName(c);
+            for (Enumeration<JarEntry> entries = jf.entries(); entries.hasMoreElements();) {
+                JarEntry entry = entries.nextElement();
+                String name = entry.getName();
+                if (name.startsWith(classMatch) && name.endsWith(suffix)) {
+                    results.add(name);
+                }
+            }
+            logger.debug("Found {} jar resources for {}", results.size(), classMatch);
+        } catch (IOException ex) {
+            logger.warn("Cannot get jar url connection to {}", url, ex);
+        }
+        return results;
+    }
+
+
+    /**
+     * Find resources for the specified class from the file URL This finds resources at multiple levels at ones. For example
+     * if you pass in emissary.util.Version.class with the ".cfg" suffix, you could get back resources that are located at
+     * emissary/util/Version.cfg and emissary/util/Version/foo.cfg in the list.
+     * 
+     * @param c the class
+     * @param url the file url
+     * @param suffix the ending suffix of desired resources
+     * @return list of resources found
+     */
+    public List<String> getFileResourcesFor(Class<?> c, URL url, String suffix) {
+        List<String> results = new ArrayList<>();
+        String classMatch = getResourceName(c);
+
+        // The url may or may not have the class portion on it
+        String path = url.getPath();
+        if (path.contains(CLASS_SUFFIX)) {
+            // Take off the ".class"
+            path = path.substring(0, path.length() - CLASS_SUFFIX.length());
+        } else {
+            // Add on the package and class names
+            path += "/" + classMatch;
+        }
+
+        // Look for a base resource at same level as class (in package dir)
+        File base = new File(path.substring(0, path.lastIndexOf('/')));
+        String pkgNamePart = classMatch.substring(0, classMatch.lastIndexOf('/'));
+        String classNamePart = classMatch.substring(classMatch.lastIndexOf('/') + 1);
+        if (base.exists() && base.isDirectory()) {
+            String[] list = base.list();
+            if (list != null) {
+                Arrays.stream(list)
+                        .filter(s -> s.startsWith(classNamePart) && s.endsWith(suffix))
+                        .forEach(s -> results.add(pkgNamePart + "/" + s));
+            }
+        }
+
+        // Look for more resources in a directory with the class name
+        File dir = new File(path);
+        if (dir.isDirectory()) {
+            String[] list = dir.list();
+            if (list != null) {
+                Arrays.stream(list)
+                        .filter(s -> s.endsWith(suffix))
+                        .forEach(s -> results.add(classMatch + '/' + s));
+            }
+        }
+
+        logger.debug("Found {} file resources for {}", results.size(), classMatch);
+        return results;
+    }
+
+}
