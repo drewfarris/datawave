@@ -91,6 +91,7 @@ public abstract class AbstractContentIngestHelper extends BaseIngestHelper {
             // when there's no token designator, we implicitly
             // index fields that are either content indexed or
             // reverse content indexed.
+            //TODO: this inadvertently adds the entire value for an index-only field as a value in the index and possibly the event?
             return super.isIndexedField(fieldName) || isContentIndexField(fieldName) || isReverseContentIndexField(fieldName);
         } else {
             return super.isIndexedField(fieldName);

@@ -54,7 +54,7 @@
 
     <property>
         <name>trec.data.header</name>
-        <value>URL,TITLE,BODY</value>
+        <value>URL,TITLE</value>
     </property>
 
     <property>
@@ -89,7 +89,7 @@
 
     <property>
         <name>trec.data.category.index</name>
-        <value>URL,TITLE,BODY</value>
+        <value>URL,TITLE</value>
         <description>List of known fields to index</description>
     </property>
 
@@ -113,12 +113,14 @@
         <description>These are the fields to tokenize and index.</description>
     </property>
 
+    <!--
     <property>
         <name>trec.data.category.index.only</name>
         <value>BODY</value>
         <description>Fields that will exist only in the global index. Will not be stored as part of the event
         </description>
     </property>
+    -->
 
     <!-- Field Normalization -->
 
