@@ -1,0 +1,30 @@
+syntax = "proto2";
+
+package datawave.annotation.protobuf;
+
+option java_package = "datawave.annotation.protobuf";
+option optimize_for = SPEED;
+option java_multiple_files = true;
+
+enum BoundType {
+  TIME_RANGE = 0;
+  POINTS = 1;
+}
+
+message BoundsProtobuf {
+  required BoundType type = 1;
+  required string start = 2;
+  required string end = 3;
+  optional uint32 rotation = 4;
+}
+
+message AnnotationProtobuf {
+  required string value = 1;
+  required float score = 2;
+  optional string ext = 3;
+}
+
+message SegmentProtobuf {
+  required BoundsProtobuf bounds = 1;
+  repeated AnnotationProtobuf annotations = 2;
+}
