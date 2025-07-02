@@ -1,12 +1,12 @@
 package datawave.annotation.util;
 
 import datawave.annotation.model.TimeBounds;
-import datawave.annotation.protobuf.BoundType;
-import datawave.annotation.protobuf.BoundsProtobuf;
+import datawave.annotation.protobuf.SegmentBoundaryType;
+import datawave.annotation.protobuf.SegmentBoundary;
 
-public class TimeBoundsParser {
-    public static TimeBounds parse(BoundsProtobuf source) {
-        if (source.getType() != BoundType.TIME_RANGE) {
+public class TimeBoundaryParser {
+    public static TimeBounds parse(SegmentBoundary source) {
+        if (source.getType() != SegmentBoundaryType.TIME) {
             throw new IllegalArgumentException("cannot parse TimeBounds from source type: " + source.getType().name());
         }
 
@@ -16,14 +16,14 @@ public class TimeBoundsParser {
         return new TimeBounds(start, end);
     }
 
-    public static BoundsProtobuf encode(TimeBounds source) {
-        return encode(BoundsProtobuf.newBuilder(), source);
+    public static SegmentBoundary encode(TimeBounds source) {
+        return encode(SegmentBoundary.newBuilder(), source);
     }
 
-    public static BoundsProtobuf encode(BoundsProtobuf.Builder builder, TimeBounds source) {
+    public static SegmentBoundary encode(SegmentBoundary.Builder builder, TimeBounds source) {
         builder.clear();
 
-        builder.setType(BoundType.TIME_RANGE);
+        builder.setType(SegmentBoundaryType.TIME);
         builder.setStart(Float.toString(source.getStart()));
         builder.setEnd(Float.toString(source.getEnd()));
 

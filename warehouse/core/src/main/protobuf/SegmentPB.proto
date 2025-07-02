@@ -32,7 +32,7 @@ message SegmentValue {
 // Segment Data stored in the Accumulo value
 message SegmentData {
   // the boundary for this segment.
-  required SegmentBoundary bounds = 1;
+  required SegmentBoundary boundary = 1;
   // values associated with this segment.
-  repeated SegmentValue values = 2;
+  repeated SegmentValue value = 2;
 }

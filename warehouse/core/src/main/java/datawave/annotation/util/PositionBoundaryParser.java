@@ -2,12 +2,12 @@ package datawave.annotation.util;
 
 import datawave.annotation.model.Point;
 import datawave.annotation.model.PointBounds;
-import datawave.annotation.protobuf.BoundType;
-import datawave.annotation.protobuf.BoundsProtobuf;
+import datawave.annotation.protobuf.SegmentBoundaryType;
+import datawave.annotation.protobuf.SegmentBoundary;
 
-public class PointBoundsParser {
-    public static PointBounds parse(BoundsProtobuf source) {
-        if (source.getType() != BoundType.POINTS) {
+public class PositionBoundaryParser {
+    public static PointBounds parse(SegmentBoundary source) {
+        if (source.getType() != SegmentBoundaryType.POSITION) {
             throw new IllegalArgumentException("Cannot parse PointBounds from source type: " + source.getType().name());
         }
 
@@ -37,14 +37,14 @@ public class PointBoundsParser {
         return p.getX() + "," + p.getY();
     }
 
-    public static BoundsProtobuf encode(PointBounds source) {
-        return encode(BoundsProtobuf.newBuilder(), source);
+    public static SegmentBoundary encode(PointBounds source) {
+        return encode(SegmentBoundary.newBuilder(), source);
     }
 
-    public static BoundsProtobuf encode(BoundsProtobuf.Builder builder, PointBounds source) {
+    public static SegmentBoundary encode(SegmentBoundary.Builder builder, PointBounds source) {
         builder.clear();
 
-        builder.setType(BoundType.POINTS);
+        builder.setType(SegmentBoundaryType.POSITION);
         builder.setStart(encodePoint(source.getTopLeft()));
         builder.setEnd(encodePoint(source.getBottomRight()));
         if (source.getRotation() != 0) {

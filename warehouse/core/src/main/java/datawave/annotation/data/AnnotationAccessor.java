@@ -1,5 +1,6 @@
 package datawave.annotation.data;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -19,12 +20,12 @@ public class AnnotationAccessor {
 
     /** Get a specific annotation */
     public Optional<Annotation> get(String shard, String datatype, UID uid, UID annotationUid) {
-
+        return Optional.empty();
     }
 
     /** Get all annotations for a document */
     public List<Annotation> getAll(String shard, String datatype, UID uid) {
-
+        return Collections.emptyList();
     }
 
     /** Save an annotation */
