@@ -21,7 +21,7 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.core.Response;
 
-@Path("/Annotations")
+@Path("/Annotations/v1")
 @RolesAllowed({"AuthorizedUser", "AuthorizedQueryServer", "InternalUser", "Administrator"})
 @DeclareRoles({"AuthorizedUser", "AuthorizedQueryServer", "InternalUser", "Administrator"})
 @LocalBean
@@ -31,7 +31,7 @@ import javax.ws.rs.core.Response;
 public class AnnotationBean {
 
     @GET
-    @Path("{id}/types")
+    @Path("/{id}/types")
     @Produces("application/json")
     public Response getAllAnnotationTypes(@PathParam("id") String id, @QueryParam("idType") String idType) {
         Set<String> types = new HashSet<>();
