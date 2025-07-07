@@ -6,9 +6,7 @@ import datawave.annotation.protobuf.SegmentData;
 import datawave.data.hash.UID;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Value;
-import org.apache.hadoop.yarn.webapp.hamlet2.Hamlet;
 
-import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -52,22 +50,24 @@ public class AccumuloAnnotationSerializer implements AnnotationSerializer<List<M
 
         String eventShard = "";
         String eventDataType = "";
-        UID eventUID = "";
+        UID eventUID = UID.parse("12345");
 
         Annotation a = Annotation.newBuilder()
-                .setEventShard(eventShard)
-                .setEventDataType(eventDataType)
-                .setEventUID(eventUID)
+                .setShard(eventShard)
+                .setDataType(eventDataType)
+                .setUid(eventUID)
                 .setMetadata(Collections.emptyMap())
                 .setSegments(Collections.emptyList())
-                .build()
+                .build();
+
+        return a;
     }
 
 
     /** Generate the base key that will be used for serialization throughout this class */
     public static Key generateBaseKey(Annotation annotation) {
-        String rowId = annotation.getEventShard();
-        String columnFamily = annotation.getEventDataType() + NULL + annotation.getEventUID() + NULL + annotation.getType();
+        String rowId = annotation.getShard();
+        String columnFamily = annotation.getDataType() + NULL + annotation.getUid() + NULL + annotation.getDataType() + NULL + annotation.getAnnotationType();
 
         //TODO: add timestamp and visibility
         return Key.builder().row(rowId).family(columnFamily).build();
@@ -95,7 +95,7 @@ public class AccumuloAnnotationSerializer implements AnnotationSerializer<List<M
      * @return
      */
     public static Map.Entry<Key, Value> serializeMetadata(Key baseKey, UID annotationId, String metadataKey, String metadataValue) {
-        final String columnQualifier = "" + annotationId + NULL + metadataKey + NULL + metadataValue;
+        final String columnQualifier = annotationId.toString() + NULL + metadataKey + NULL + metadataValue;
         final Key key = Key.builder()
                 .row(baseKey.getRowData().getBackingArray())
                 .family(baseKey.getColumnFamilyData().getBackingArray())
