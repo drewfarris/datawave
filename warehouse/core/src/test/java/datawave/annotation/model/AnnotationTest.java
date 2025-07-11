@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -126,6 +127,7 @@ public class AnnotationTest {
         assertSegmentsEqual(testSegments, a.getSegments());
     }
 
+    /** Assert that two lists of segment are equal. We start by ensuring that both of the segment id's */
     public static void assertSegmentsEqual(List<Segment> expected, List<Segment> result) {
         Map<String, Segment> expectedByUID = indexSegments(expected);
         Set<String> expectedUIDs = expectedByUID.keySet();
@@ -150,15 +152,21 @@ public class AnnotationTest {
 
         
         List<String> mismatchedSegmentMessages = new ArrayList<>();
-        for (Map.Entry<String, Segment> expectedSegment: expectedByUID.entrySet()) {
-            String expectedKey = expectedSegment.getKey();
+        for (Map.Entry<String, Segment> expectedSegmentEntry: expectedByUID.entrySet()) {
+            String expectedKey = expectedSegmentEntry.getKey();
             Segment resultSegment = resultByUID.get(expectedKey);
-            compareSegments(expectedSegment, resultSegment, mismatchedSegmentMessages);
+            compareSegments(expectedSegmentEntry.getValue(), resultSegment, mismatchedSegmentMessages);
         }
 
         assertTrue("Segment mismatches observed: " + mismatchedSegmentMessages, mismatchedSegmentMessages.isEmpty());
     }
 
+    /** Generate an index of segments by segment id so that we can compare them a collection of segments to ensure
+     *  they are the same.
+     *
+     * @param input the list of segments we'll be comparing/
+     * @return a map of segment id to segment.
+     */
     public static Map<String, Segment> indexSegments(List<Segment> input) {
         final Map<String, Segment> index = new HashMap<>();
         for (Segment s: input) {
@@ -167,7 +175,92 @@ public class AnnotationTest {
         return index;
     }
 
-    public static void compareSegments(String expected, String result, List<String> mismatchedSegmentMessages) {
+    /** Compare two segments, including their embedded boundaries and values. If there is a mismatch, the details will
+     *  be written to errorMessages. If, after this method is run errorMessages is empty, the segments are identical.
+     * @param expected the expected segment
+     * @param result the result segment to compae to
+     * @param errorMessages results stored here.
+     */
+    public static void compareSegments(Segment expected, Segment result, List<String> errorMessages) {
+        if (!expected.getSegmentId().equals(result.getSegmentId())) {
+            errorMessages.add("Mismatched UIDs: expected " + expected.getSegmentId() + " result: " + result.getSegmentId());
+        }
 
+        SegmentData expectedData = expected.getSegmentData();
+        SegmentData resultData = result.getSegmentData();
+
+        if (expectedData.getValueCount() != resultData.getValueCount()) {
+            errorMessages.add("Mismatched Value counts: expected " + expectedData.getValueCount() + " result: " + resultData.getValueCount());
+        }
+
+        SegmentBoundary expectedBoundary = expectedData.getBoundary();
+        SegmentBoundary resultBoundary = resultData.getBoundary();
+
+        compareSegmentBoundaries(expectedBoundary, resultBoundary, errorMessages);
+        compareSegmentValues(expectedData.getValueList(), resultData.getValueList(), errorMessages);
+
+    }
+
+    /** Compare two segment boundaries. If there is a mismatch, the details will be written to errorMessages. If,
+     *  after this method is run, errorMessages is empty, the boundaries are identical.
+     * @param expectedBoundary the expected boundary.
+     * @param resultsBoundary the result boundary to compare against.
+     * @param errorMessages results stored here.
+     */
+    public static void compareSegmentBoundaries(SegmentBoundary expectedBoundary, SegmentBoundary resultsBoundary, List<String> errorMessages) {
+        if (!expectedBoundary.getStart().equals(resultsBoundary.getStart())) {
+            errorMessages.add("Mismatched boundary start: expected + " + expectedBoundary.getStart() + " result: " + resultsBoundary.getStart());
+        }
+
+        if (!expectedBoundary.getEnd().equals(resultsBoundary.getEnd())) {
+            errorMessages.add("Mismatched boundary end: expected + " + expectedBoundary.getEnd() + " result: " + resultsBoundary.getEnd());
+        }
+
+        if (!expectedBoundary.getType().equals(resultsBoundary.getType())) {
+            errorMessages.add("Mismatched boundary type: expected + " + expectedBoundary.getType() + " result: " + resultsBoundary.getType());
+        }
+
+        if (expectedBoundary.getRotation() != resultsBoundary.getRotation()) {
+            errorMessages.add("Mismatched boundary rotation: expected + " + expectedBoundary.getRotation() + " result: " + resultsBoundary.getRotation());
+        }
+    }
+
+    /** Compare two lists of segment values. If there is a mismatch, the details will be written to errorMessages. If,
+     *  after this method is run, errorMessages is empty, the lists are identical.
+     * @param expectedValues the list of expected values
+     * @param resultValues the list of result values.
+     * @param errorMessages results stored here.
+     */
+    public static void compareSegmentValues(List<SegmentValue> expectedValues, List<SegmentValue> resultValues, List<String> errorMessages) {
+        List<String> expectedValueStrings = expectedValues.stream().map(AnnotationTest::valueToString).collect(Collectors.toList());
+        List<String> unexpectedValueStrings = new ArrayList<>();
+        for (SegmentValue resultValue: resultValues) {
+            String resultValueString = valueToString(resultValue);
+            if (!expectedValueStrings.remove(resultValueString)) {
+                unexpectedValueStrings.add(resultValueString);
+            }
+        }
+
+        if (!expectedValueStrings.isEmpty()) {
+            errorMessages.add("Did not observe expected segment values: " + expectedValueStrings);
+        }
+
+        if (!unexpectedValueStrings.isEmpty()) {
+            errorMessages.add("Observed unexpected segment values: " + unexpectedValueStrings);
+        }
+    }
+
+    /** Cheat on comparison, convert the values to strings
+     *
+     * @param segmentValue the segment value to convert
+     * @return the value converted to a string (human-readable)
+     */
+    public static String valueToString(SegmentValue segmentValue) {
+        StringBuilder b = new StringBuilder().append(segmentValue.getValue());
+        if (segmentValue.hasExtension()) {
+            b.append("-").append(segmentValue.getExtension());
+        }
+        b.append(":").append(segmentValue.getScore());
+        return b.toString();
     }
 }
