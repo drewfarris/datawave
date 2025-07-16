@@ -132,6 +132,10 @@ public class Annotation {
                 .addCheck(a -> notNullOrEmpty(a.getUid()), "uid must be present")
                 .addCheck(a -> notNullOrEmpty(a.getAnnotationType()), "annotation type must be present");
 
+        protected Builder() {
+
+        }
+
         public Builder setDataType(String dataType) {
             this.dataType = dataType;
             return this;

@@ -8,7 +8,8 @@ public class Segment {
     private UID segmentId;
     private final SegmentData segmentData;
 
-    protected Segment(SegmentData segmentData) {
+    protected Segment(UID segmentId, SegmentData segmentData) {
+        this.segmentId = segmentId;
         this.segmentData = segmentData;
     }
 
@@ -36,10 +37,16 @@ public class Segment {
 
     public static class Builder {
 
+        UID segmentId;
         SegmentData segmentData;
 
         protected Builder() {
 
+        }
+
+        public Builder setSegmentId(UID segmentId) {
+            this.segmentId = segmentId;
+            return this;
         }
 
         public Builder setSegmentData(SegmentData segmentData) {
@@ -48,9 +55,12 @@ public class Segment {
         }
 
         public Segment build() {
-            final Segment segment = new Segment(segmentData);
-            segment.generateUID();
-            return segment;
+            Segment s = new Segment(segmentId, segmentData);
+            //TODO: validate? minimally check segment data.
+            if (segmentId == null) {
+                s.generateUID();
+            }
+            return s;
         }
     }
 }
