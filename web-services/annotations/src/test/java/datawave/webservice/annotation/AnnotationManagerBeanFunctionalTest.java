@@ -19,14 +19,6 @@ import javax.enterprise.inject.Produces;
 import javax.inject.Inject;
 import javax.ws.rs.core.Response;
 
-import datawave.annotation.data.AnnotationDataAccess;
-import datawave.annotation.data.v1.AccumuloAnnotationSerializer;
-import datawave.annotation.data.visibility.AnnotationVisibilityTransformer;
-import datawave.annotation.data.visibility.DefaultAnnotationVisibilityTransformer;
-import datawave.annotation.protobuf.v1.Annotation;
-import datawave.annotation.protobuf.v1.Segment;
-import datawave.annotation.util.v1.AnnotationTestUtil;
-import datawave.security.authorization.DatawavePrincipal;
 import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.client.admin.TableOperations;
 import org.apache.accumulo.core.security.Authorizations;
@@ -45,6 +37,13 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 
+import datawave.annotation.data.AnnotationDataAccess;
+import datawave.annotation.data.v1.AccumuloAnnotationSerializer;
+import datawave.annotation.data.visibility.AnnotationVisibilityTransformer;
+import datawave.annotation.data.visibility.DefaultAnnotationVisibilityTransformer;
+import datawave.annotation.protobuf.v1.Annotation;
+import datawave.annotation.protobuf.v1.Segment;
+import datawave.annotation.util.v1.AnnotationTestUtil;
 import datawave.configuration.spring.SpringBean;
 import datawave.core.common.connection.AccumuloConnectionFactory;
 import datawave.core.query.logic.QueryLogicFactory;
@@ -55,6 +54,7 @@ import datawave.query.QueryTestTableHelper;
 import datawave.query.metrics.QueryMetricQueryLogic;
 import datawave.query.tables.edge.DefaultEdgeEventQueryLogic;
 import datawave.query.util.WiseGuysIngest;
+import datawave.security.authorization.DatawavePrincipal;
 import datawave.security.authorization.UserOperations;
 import datawave.webservice.edgedictionary.RemoteEdgeDictionary;
 import datawave.webservice.query.result.event.ResponseObjectFactory;
@@ -70,7 +70,7 @@ public class AnnotationManagerBeanFunctionalTest {
     protected Set<Authorizations> authSet = Set.of(auths);
 
     // used for writing data for specific tests
-    protected static AnnotationDataAccess<Annotation, Segment> testDao;
+    protected static AnnotationDataAccess<Annotation,Segment> testDao;
 
     @Mock
     @Produces
@@ -159,10 +159,9 @@ public class AnnotationManagerBeanFunctionalTest {
         WiseGuysIngest.writeItAll(client, WiseGuysIngest.WhatKindaRange.DOCUMENT);
         Authorizations auths = new Authorizations("ALL");
         /*
-        PrintUtility.printTable(client, auths, TableName.SHARD);
-        PrintUtility.printTable(client, auths, TableName.SHARD_INDEX);
-        PrintUtility.printTable(client, auths, QueryTestTableHelper.MODEL_TABLE_NAME);
-        */
+         * PrintUtility.printTable(client, auths, TableName.SHARD); PrintUtility.printTable(client, auths, TableName.SHARD_INDEX);
+         * PrintUtility.printTable(client, auths, QueryTestTableHelper.MODEL_TABLE_NAME);
+         */
 
         PrintUtility.printTable(client, auths, tableName);
 
@@ -172,7 +171,8 @@ public class AnnotationManagerBeanFunctionalTest {
 
         connectionFactory = EasyMock.createMock(AccumuloConnectionFactory.class);
         EasyMock.expect(connectionFactory.getTrackingMap(EasyMock.anyObject())).andReturn(new HashMap<>()).anyTimes();
-        EasyMock.expect(connectionFactory.getClient(EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject())).andReturn(client).anyTimes();
+        EasyMock.expect(connectionFactory.getClient(EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject(),
+                        EasyMock.anyObject())).andReturn(client).anyTimes();
 
         queryExecutor = EasyMock.createMock(QueryExecutor.class);
         queryLogicFactory = EasyMock.createMock(QueryLogicFactory.class);
@@ -198,7 +198,8 @@ public class AnnotationManagerBeanFunctionalTest {
         assertEquals(200, response.getStatus());
         Object entity = response.getEntity();
         assertTrue(Set.class.isAssignableFrom(entity.getClass()));
-        @SuppressWarnings("unchecked") Set<String> annotationTypeList = (Set<String>) entity;
+        @SuppressWarnings("unchecked")
+        Set<String> annotationTypeList = (Set<String>) entity;
         assertEquals(1, annotationTypeList.size());
         assertTrue(annotationTypeList.contains("testAnnotationType"));
     }
@@ -221,7 +222,8 @@ public class AnnotationManagerBeanFunctionalTest {
         assertEquals(200, response.getStatus());
         Object entity = response.getEntity();
         assertTrue(ArrayList.class.isAssignableFrom(entity.getClass()));
-        @SuppressWarnings("unchecked") ArrayList<Annotation> annotationList = (ArrayList<Annotation>) entity;
+        @SuppressWarnings("unchecked")
+        ArrayList<Annotation> annotationList = (ArrayList<Annotation>) entity;
         assertEquals(1, annotationList.size());
         Annotation a = annotationList.get(0);
         AnnotationTestUtil.assertAnnotationsEqual(expectedAnnotation, a);
@@ -239,16 +241,16 @@ public class AnnotationManagerBeanFunctionalTest {
         assertTrue(errorResponse.contains("20250704_249/testDataType/12345.67890.12345"));
     }
 
-
     @Test
     public void testGetAllAnnotationsByTypeInternalId() {
         Annotation expectedAnnotation = AnnotationTestUtil.generateTestAnnotation();
-        //TODO: insert a second annotation for the same document with a different type?
+        // TODO: insert a second annotation for the same document with a different type?
         Response response = annotationManager.getAnnotationsByType("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno", "testAnnotationType");
         assertEquals(200, response.getStatus());
         Object entity = response.getEntity();
         assertTrue(ArrayList.class.isAssignableFrom(entity.getClass()));
-        @SuppressWarnings("unchecked") ArrayList<Annotation> annotationList = (ArrayList<Annotation>) entity;
+        @SuppressWarnings("unchecked")
+        ArrayList<Annotation> annotationList = (ArrayList<Annotation>) entity;
         assertEquals(1, annotationList.size());
         Annotation a = annotationList.get(0);
         AnnotationTestUtil.assertAnnotationsEqual(expectedAnnotation, a);
@@ -257,7 +259,7 @@ public class AnnotationManagerBeanFunctionalTest {
     @Test
     public void testGetAllAnnotationByTypeInternalIdMissingType() {
         Annotation expectedAnnotation = AnnotationTestUtil.generateTestAnnotation();
-        //TODO: insert a second annotation for the same document with a different type?
+        // TODO: insert a second annotation for the same document with a different type?
         Response response = annotationManager.getAnnotationsByType("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno", "missingType");
         Object entity = response.getEntity();
         assertTrue(String.class.isAssignableFrom(entity.getClass()));
@@ -270,11 +272,12 @@ public class AnnotationManagerBeanFunctionalTest {
     @Test
     public void testGetAnnotationInternalId() throws Exception {
         Annotation expectedAnnotation = AnnotationTestUtil.generateTestAnnotation();
-        Response response = annotationManager.getAnnotation("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno","bcb2bb84");
+        Response response = annotationManager.getAnnotation("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno", "bcb2bb84");
         assertEquals(200, response.getStatus());
         Object entity = response.getEntity();
         assertTrue(Optional.class.isAssignableFrom(entity.getClass()));
-        @SuppressWarnings("unchecked") Optional<Annotation> annotationOptional = (Optional<Annotation>) entity;
+        @SuppressWarnings("unchecked")
+        Optional<Annotation> annotationOptional = (Optional<Annotation>) entity;
         assertFalse(annotationOptional.isEmpty());
         Annotation a = annotationOptional.get();
         AnnotationTestUtil.assertAnnotationsEqual(expectedAnnotation, a);
@@ -282,7 +285,7 @@ public class AnnotationManagerBeanFunctionalTest {
 
     @Test
     public void testGetAnnotationMissingInternalId() throws Exception {
-        Response response = annotationManager.getAnnotation("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno","aaaaaaaa");
+        Response response = annotationManager.getAnnotation("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno", "aaaaaaaa");
         assertEquals(404, response.getStatus());
         Object entity = response.getEntity();
         assertTrue(String.class.isAssignableFrom(entity.getClass()));
@@ -306,11 +309,12 @@ public class AnnotationManagerBeanFunctionalTest {
     @Test
     public void testGetAnnotationSegmentInternalId() {
         Annotation expectedAnnotation = AnnotationTestUtil.generateTestAnnotation();
-        Response response = annotationManager.getAnnotationSegment("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno","bcb2bb84", "5a7bcdd9");
+        Response response = annotationManager.getAnnotationSegment("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno", "bcb2bb84", "5a7bcdd9");
         assertEquals(200, response.getStatus());
         Object entity = response.getEntity();
         assertTrue(Optional.class.isAssignableFrom(entity.getClass()));
-        @SuppressWarnings("unchecked") Optional<Segment> segmentOptional = (Optional<Segment>) entity;
+        @SuppressWarnings("unchecked")
+        Optional<Segment> segmentOptional = (Optional<Segment>) entity;
         assertFalse(segmentOptional.isEmpty());
         Segment s = segmentOptional.get();
         AnnotationTestUtil.assertSegmentsEqual(expectedAnnotation.getSegmentsList(), List.of(s));
@@ -318,7 +322,7 @@ public class AnnotationManagerBeanFunctionalTest {
 
     @Test
     public void testGetAnnotationSegmentInternalIdMissingAnnotationId() {
-        Response response = annotationManager.getAnnotationSegment("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno","aaaaaaaa", "5a7bcdd9");
+        Response response = annotationManager.getAnnotationSegment("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno", "aaaaaaaa", "5a7bcdd9");
         assertEquals(404, response.getStatus());
         Object entity = response.getEntity();
         assertTrue(String.class.isAssignableFrom(entity.getClass()));
@@ -330,7 +334,7 @@ public class AnnotationManagerBeanFunctionalTest {
 
     @Test
     public void testGetAnnotationSegmentInternalIdMissingSegmentId() {
-        Response response = annotationManager.getAnnotationSegment("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno","bcb2bb84", "bbbbbbbb");
+        Response response = annotationManager.getAnnotationSegment("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno", "bcb2bb84", "bbbbbbbb");
         assertEquals(404, response.getStatus());
         Object entity = response.getEntity();
         assertTrue(String.class.isAssignableFrom(entity.getClass()));

@@ -30,13 +30,13 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.security.Authorizations;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.protobuf.InvalidProtocolBufferException;
 
@@ -106,7 +106,6 @@ public class AnnotationManagerBean implements AnnotationManager {
     public void setTableName(String tableName) {
         this.tableName = tableName;
     }
-
 
     @VisibleForTesting
     public void setEJBContext(EJBContext ctx) {
@@ -372,9 +371,8 @@ public class AnnotationManagerBean implements AnnotationManager {
     }
 
     public static Response jsonNotFound(String objectType, String idType, String id, String internalId, String annotationType, String annotationId) {
-        String message = id.contains(internalId) ?
-                String.format("No %s found for identifier: '%s:%s'", objectType, idType, id) :
-                String.format("No %s found for identifier '%s:%s', internalId: '%s'", objectType, idType, id, internalId);
+        String message = id.contains(internalId) ? String.format("No %s found for identifier: '%s:%s'", objectType, idType, id)
+                        : String.format("No %s found for identifier '%s:%s', internalId: '%s'", objectType, idType, id, internalId);
 
         if (!StringUtils.isEmpty(annotationType)) {
             message += String.format(", annotationType '%s'", annotationType);
