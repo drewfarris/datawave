@@ -56,7 +56,7 @@ import datawave.webservice.query.configuration.LookupUUIDConfiguration;
 import datawave.webservice.query.exception.QueryException;
 import datawave.webservice.query.result.event.ResponseObjectFactory;
 import datawave.webservice.query.runner.AccumuloConnectionRequestBean;
-import datawave.webservice.query.runner.QueryExecutor;
+import datawave.webservice.query.runner.QueryExecutorBean;
 import datawave.webservice.query.util.LookupUUIDUtil;
 
 @Path("/Annotations/v1")
@@ -77,7 +77,7 @@ public class AnnotationManagerBean implements AnnotationManager {
     private AccumuloConnectionFactory connectionFactory;
 
     @Inject
-    private QueryExecutor queryExecutor;
+    private QueryExecutorBean queryExecutor;
 
     @Inject
     private QueryLogicFactory queryLogicFactory;

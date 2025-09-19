@@ -60,6 +60,7 @@ import datawave.webservice.edgedictionary.RemoteEdgeDictionary;
 import datawave.webservice.query.result.event.ResponseObjectFactory;
 import datawave.webservice.query.runner.AccumuloConnectionRequestBean;
 import datawave.webservice.query.runner.QueryExecutor;
+import datawave.webservice.query.runner.QueryExecutorBean;
 
 @RunWith(Arquillian.class)
 public class AnnotationManagerBeanFunctionalTest {
@@ -82,7 +83,7 @@ public class AnnotationManagerBeanFunctionalTest {
 
     @Mock
     @Produces
-    private static QueryExecutor queryExecutor;
+    private static QueryExecutorBean queryExecutorBean;
 
     @Mock
     @Produces
@@ -174,7 +175,7 @@ public class AnnotationManagerBeanFunctionalTest {
         EasyMock.expect(connectionFactory.getClient(EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject(), EasyMock.anyObject(),
                         EasyMock.anyObject())).andReturn(client).anyTimes();
 
-        queryExecutor = EasyMock.createMock(QueryExecutor.class);
+        queryExecutorBean = EasyMock.createMock(QueryExecutorBean.class);
         queryLogicFactory = EasyMock.createMock(QueryLogicFactory.class);
         responseObjectFactory = EasyMock.createMock(ResponseObjectFactory.class);
         userOperations = EasyMock.createMock(UserOperations.class);
