@@ -37,8 +37,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 
-import datawave.annotation.data.AnnotationDataAccess;
 import datawave.annotation.data.v1.AccumuloAnnotationSerializer;
+import datawave.annotation.data.v1.AnnotationDataAccess;
 import datawave.annotation.data.visibility.AnnotationVisibilityTransformer;
 import datawave.annotation.data.visibility.DefaultAnnotationVisibilityTransformer;
 import datawave.annotation.protobuf.v1.Annotation;
@@ -71,7 +71,7 @@ public class AnnotationManagerBeanFunctionalTest {
     protected Set<Authorizations> authSet = Set.of(auths);
 
     // used for writing data for specific tests
-    protected static AnnotationDataAccess<Annotation,Segment> testDao;
+    protected static AnnotationDataAccess testDao;
 
     @Mock
     @Produces
@@ -150,7 +150,7 @@ public class AnnotationManagerBeanFunctionalTest {
 
         AnnotationVisibilityTransformer visibilityTransformer = new DefaultAnnotationVisibilityTransformer();
         AccumuloAnnotationSerializer annotationSerializer = new AccumuloAnnotationSerializer(visibilityTransformer);
-        testDao = new AnnotationDataAccess<>(client, authorizations, tableName, annotationSerializer);
+        testDao = new AnnotationDataAccess(client, authorizations, tableName, annotationSerializer);
 
         Annotation testAnnotation = AnnotationTestUtil.generateTestAnnotation();
         testDao.save(testAnnotation);

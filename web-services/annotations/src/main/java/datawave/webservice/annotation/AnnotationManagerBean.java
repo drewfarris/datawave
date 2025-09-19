@@ -40,8 +40,8 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Objects;
 import com.google.protobuf.InvalidProtocolBufferException;
 
-import datawave.annotation.data.AnnotationDataAccess;
 import datawave.annotation.data.v1.AccumuloAnnotationSerializer;
+import datawave.annotation.data.v1.AnnotationDataAccess;
 import datawave.annotation.data.visibility.AnnotationVisibilityTransformer;
 import datawave.annotation.data.visibility.DefaultAnnotationVisibilityTransformer;
 import datawave.annotation.protobuf.v1.Annotation;
@@ -118,7 +118,7 @@ public class AnnotationManagerBean implements AnnotationManager {
                         this.userOperations);
     }
 
-    public AnnotationDataAccess<Annotation,Segment> initializeAnnotationService() throws QueryException {
+    public AnnotationDataAccess initializeAnnotationService() throws QueryException {
         AccumuloClient client;
         AccumuloConnectionFactory.Priority priority = AccumuloConnectionFactory.Priority.LOW;
         String connectionPoolName = "DEFAULT";
@@ -157,7 +157,7 @@ public class AnnotationManagerBean implements AnnotationManager {
 
         AnnotationVisibilityTransformer visibilityTransformer = new DefaultAnnotationVisibilityTransformer();
         AccumuloAnnotationSerializer annotationSerializer = new AccumuloAnnotationSerializer(visibilityTransformer);
-        return new AnnotationDataAccess<>(client, authorizations, tableName, annotationSerializer);
+        return new AnnotationDataAccess(client, authorizations, tableName, annotationSerializer);
     }
 
     @GET
@@ -171,7 +171,7 @@ public class AnnotationManagerBean implements AnnotationManager {
                 return jsonNotFound(String.format("No internal identifier found for '%s:%s'", idType, id));
             }
 
-            final AnnotationDataAccess<Annotation,Segment> annotationDataAccess = initializeAnnotationService();
+            final AnnotationDataAccess annotationDataAccess = initializeAnnotationService();
             final Collection<String> types = annotationDataAccess.getTypes(internalId.getShard(), internalId.getDataType(), internalId.getUid());
             if (types.isEmpty()) {
                 return jsonNotFound("annotation types", idType, id, internalId.toString(), null, null);
@@ -196,7 +196,7 @@ public class AnnotationManagerBean implements AnnotationManager {
                 return jsonNotFound(String.format("No internal identifier found for '%s:%s'", idType, id));
             }
 
-            final AnnotationDataAccess<Annotation,Segment> annotationDataAccess = initializeAnnotationService();
+            final AnnotationDataAccess annotationDataAccess = initializeAnnotationService();
             final List<Annotation> annotations = annotationDataAccess.getAll(internalId.getShard(), internalId.getDataType(), internalId.getUid());
             if (annotations.isEmpty()) {
                 return jsonNotFound("annotations", idType, id, internalId.toString(), null, null);
@@ -221,7 +221,7 @@ public class AnnotationManagerBean implements AnnotationManager {
                 return jsonNotFound(String.format("No internal identifier found for '%s:%s'", idType, id));
             }
 
-            final AnnotationDataAccess<Annotation,Segment> annotationDataAccess = initializeAnnotationService();
+            final AnnotationDataAccess annotationDataAccess = initializeAnnotationService();
             final List<Annotation> annotations = annotationDataAccess.getAllForType(internalId.getShard(), internalId.getDataType(), internalId.getUid(),
                             annotationType);
             if (annotations.isEmpty()) {
@@ -245,7 +245,7 @@ public class AnnotationManagerBean implements AnnotationManager {
                 return jsonNotFound(String.format("No internal identifier found for '%s:%s'", idType, id));
             }
 
-            final AnnotationDataAccess<Annotation,Segment> annotationDataAccess = initializeAnnotationService();
+            final AnnotationDataAccess annotationDataAccess = initializeAnnotationService();
             final Optional<Annotation> annotations = annotationDataAccess.getAnnotation(internalId.getShard(), internalId.getDataType(), internalId.getUid(),
                             annotationId);
             if (annotations.isEmpty()) {
@@ -285,7 +285,7 @@ public class AnnotationManagerBean implements AnnotationManager {
                 return jsonNotFound(String.format("No internal identifier found for '%s:%s'", idType, id));
             }
 
-            final AnnotationDataAccess<Annotation,Segment> annotationDataAccess = initializeAnnotationService();
+            final AnnotationDataAccess annotationDataAccess = initializeAnnotationService();
             final Optional<Annotation> annotation = annotationDataAccess.getAnnotation(internalId.getShard(), internalId.getDataType(), internalId.getUid(),
                             annotationId);
             if (annotation.isEmpty()) {
@@ -328,13 +328,15 @@ public class AnnotationManagerBean implements AnnotationManager {
                 return jsonNotFound(String.format("No internal identifier found for '%s:%s'", idType, id));
             }
 
+            final AnnotationDataAccess annotationDataAccess = initializeAnnotationService();
+            annotationDataAccess.addSegment(internalId.getShard(), internalId.getDataType(), internalId.getUid(), annotationId, segment);
+            return jsonOk(segment.getSegmentId());
         } catch (InvalidProtocolBufferException e) {
             return jsonError("Invalid annotation json: " + e.getMessage());
         } catch (QueryException e) {
             log.error("Internal error fetching annotations", e);
             return jsonError(String.format("Internal error fetching annotations: %s", e.getMessage()));
         }
-        return Response.ok().build();
     }
 
     @PUT

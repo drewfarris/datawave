@@ -78,7 +78,7 @@ public class AnnotationDataAccess {
      * @param annotationType
      *            the type of annotation we're seeing.
      * @param annotationUid
-     *            the annodataion id of the annotation we want to fetch.
+     *            the annotation id of the annotation we want to fetch.
      * @return an Optional that will contain the retrieved annotation if found.
      */
     public Optional<Annotation> get(String shard, String datatype, String uid, String annotationType, String annotationUid) {
