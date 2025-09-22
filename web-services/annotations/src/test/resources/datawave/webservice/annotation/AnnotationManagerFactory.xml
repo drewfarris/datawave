@@ -8,5 +8,18 @@
 
     <bean id="AnnotationManager" scope="prototype"  class="datawave.webservice.annotation.AnnotationManagerBean">
         <property name="tableName" value="annotations"/>
+        <property name="connPoolName" value="DEFAULT" />
+        <property name="lookupUUIDQueryLogic">
+            <bean scope="prototype" parent="BaseEventQuery">
+                <property name="auditType" value="NONE" />
+                <property name="logicDescription" value="Lucene query for event/document UUIDs" />
+                <property name="mandatoryQuerySyntax">
+                    <util:set>
+                        <value>LUCENE-UUID</value>
+                    </util:set>
+                </property>
+                <property name="connPoolName" value="UUID" />
+            </bean>
+        </property>
     </bean>
 </beans>

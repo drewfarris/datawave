@@ -30,7 +30,10 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
+import datawave.core.query.logic.QueryLogic;
 import org.apache.accumulo.core.client.AccumuloClient;
+import org.apache.accumulo.core.data.Key;
+import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.security.Authorizations;
 import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
@@ -95,9 +98,21 @@ public class AnnotationManagerBean implements AnnotationManager {
     @SpringBean(refreshable = true)
     private LookupUUIDConfiguration lookupUUIDConfiguration;
 
+    private QueryLogic<Map.Entry<Key, Value>> lookupUUIDQueryLogic;
+
     private LookupUUIDUtil lookupUUIDUtil;
 
-    private String tableName;
+    private String tableName = "annotations";
+
+    private String connPoolName = "DEFAULT";
+
+    public QueryLogic<Map.Entry<Key, Value>> getLookupUUIDQueryLogic() {
+        return lookupUUIDQueryLogic;
+    }
+
+    public void setLookupUUIDQueryLogic(QueryLogic<Map.Entry<Key, Value>> lookupUUIDQueryLogic) {
+        this.lookupUUIDQueryLogic = lookupUUIDQueryLogic;
+    }
 
     public String getTableName() {
         return tableName;
@@ -105,6 +120,14 @@ public class AnnotationManagerBean implements AnnotationManager {
 
     public void setTableName(String tableName) {
         this.tableName = tableName;
+    }
+
+    public String getConnPoolName() {
+        return connPoolName;
+    }
+
+    public void setConnPoolName(String connPoolName) {
+        this.connPoolName = connPoolName;
     }
 
     @VisibleForTesting
@@ -121,7 +144,6 @@ public class AnnotationManagerBean implements AnnotationManager {
     public AnnotationDataAccess initializeAnnotationService() throws QueryException {
         AccumuloClient client;
         AccumuloConnectionFactory.Priority priority = AccumuloConnectionFactory.Priority.LOW;
-        String connectionPoolName = "DEFAULT";
         UUID transactionUUID = java.util.UUID.randomUUID();
         final Principal p = ctx.getCallerPrincipal();
         String userDn = p.getName();
@@ -144,7 +166,7 @@ public class AnnotationManagerBean implements AnnotationManager {
         }
         accumuloConnectionRequestBean.requestBegin(transactionUUID.toString(), userDn, trackingMap);
         try {
-            client = connectionFactory.getClient(userDn, proxyServers, connectionPoolName, priority, trackingMap);
+            client = connectionFactory.getClient(userDn, proxyServers, connPoolName, priority, trackingMap);
         } catch (Exception e) {
             throw new QueryException("Unable to get Accumulo client, exception encountered: ", e);
         } finally {
@@ -346,7 +368,7 @@ public class AnnotationManagerBean implements AnnotationManager {
     @Override
     public Response updateSegment(@PathParam("idType") String idType, @PathParam("id") String id, @PathParam("annotationId") String annotationId,
                     @PathParam("segmentId") String segmentId, String body) {
-        // TODO
+        // TODO: determine update semantics.
 
         return Response.ok().build();
     }
