@@ -306,8 +306,14 @@
                     <additionalClasspathElements>
                         <additionalClasspathElement>${basedir}/conf</additionalClasspathElement>
                     </additionalClasspathElements>
-                    <argLine>@{argLine} --add-opens java.xml/jdk.xml.internal=ALL-UNNAMED</argLine>
+                    <argLine>@{argLine} -Djava.security.krb5.realm= -Djava.security.krb5.kdc= --add-opens java.xml/jdk.xml.internal=ALL-UNNAMED</argLine>
                     <skipTests>${skipUTs}</skipTests>
+                    <environmentVariables>
+                        <ACCUMULO_HOME>/dev/null</ACCUMULO_HOME>
+                        <ACCUMULO_CONF_DIR>/dev/null</ACCUMULO_CONF_DIR>
+                        <HADOOP_HOME>/dev/null</HADOOP_HOME>
+                        <HADOOP_CONF_DIR>/dev/null</HADOOP_CONF_DIR>
+                    </environmentVariables>
                 </configuration>
             </plugin>
         </plugins>

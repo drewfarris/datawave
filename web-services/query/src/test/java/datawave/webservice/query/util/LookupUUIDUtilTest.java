@@ -9,6 +9,7 @@ import java.util.Collections;
 import javax.ejb.EJBContext;
 import javax.ws.rs.core.MultivaluedMap;
 
+import datawave.core.query.logic.QueryLogic;
 import org.jboss.resteasy.specimpl.MultivaluedMapImpl;
 import org.jboss.resteasy.util.FindAnnotation;
 import org.junit.Test;

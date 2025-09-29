@@ -30,7 +30,6 @@ import javax.ws.rs.Produces;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 
-import datawave.core.query.logic.QueryLogic;
 import org.apache.accumulo.core.client.AccumuloClient;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Value;
@@ -52,6 +51,7 @@ import datawave.annotation.protobuf.v1.Segment;
 import datawave.annotation.util.v1.SegmentUtils;
 import datawave.configuration.spring.SpringBean;
 import datawave.core.common.connection.AccumuloConnectionFactory;
+import datawave.core.query.logic.QueryLogic;
 import datawave.core.query.logic.QueryLogicFactory;
 import datawave.security.authorization.DatawavePrincipal;
 import datawave.security.authorization.UserOperations;
@@ -98,7 +98,7 @@ public class AnnotationManagerBean implements AnnotationManager {
     @SpringBean(refreshable = true)
     private LookupUUIDConfiguration lookupUUIDConfiguration;
 
-    private QueryLogic<Map.Entry<Key, Value>> lookupUUIDQueryLogic;
+    private QueryLogic<Map.Entry<Key,Value>> lookupUUIDQueryLogic;
 
     private LookupUUIDUtil lookupUUIDUtil;
 
@@ -106,11 +106,11 @@ public class AnnotationManagerBean implements AnnotationManager {
 
     private String connPoolName = "DEFAULT";
 
-    public QueryLogic<Map.Entry<Key, Value>> getLookupUUIDQueryLogic() {
+    public QueryLogic<Map.Entry<Key,Value>> getLookupUUIDQueryLogic() {
         return lookupUUIDQueryLogic;
     }
 
-    public void setLookupUUIDQueryLogic(QueryLogic<Map.Entry<Key, Value>> lookupUUIDQueryLogic) {
+    public void setLookupUUIDQueryLogic(QueryLogic<Map.Entry<Key,Value>> lookupUUIDQueryLogic) {
         this.lookupUUIDQueryLogic = lookupUUIDQueryLogic;
     }
 
