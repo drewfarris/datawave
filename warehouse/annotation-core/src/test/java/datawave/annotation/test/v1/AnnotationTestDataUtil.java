@@ -107,6 +107,41 @@ public class AnnotationTestDataUtil {
         return testAnnotations;
     }
 
+    public static List<AnnotationSource> generateManyTestAnnotationSources() {
+        List<AnnotationSource> testAnnotationSources = new ArrayList<>();
+
+        final String[] engines = {"v4", "v6", "v8"};
+        final String[] models = {"camry", "corolla", "avalon"};
+        final String[] sourceLabels = {"toyota", "honda", "mitsubishi"};
+        final String[] configurations = {"circular", "reduction", "inherit", "standalone", "inline"};
+
+        int iteration = 0;
+        for (String engine : engines) {
+            for (String model : models) {
+                for (String sourceLabel : sourceLabels) {
+                    int pos = iteration % configurations.length;
+                    iteration++;
+                    //@formatter:off
+                    Map<String, String> configuration = Map.of(
+                            "visibility", "PUBLIC",
+                            "created_date", "2025-10-01T00:00:00.000Z",
+                            "provenance", engine + "/" + model + "/" + sourceLabel,
+                            "normalization", configurations[pos]
+                    );
+                    AnnotationSource annotationSource = AnnotationSource.newBuilder()
+                            .setEngine(engine)
+                            .setModel(model)
+                            .setSourceLabel(sourceLabel)
+                            .putAllConfiguration(configuration)
+                            .build();
+                    testAnnotationSources.add(annotationSource);
+                    //@formatter:on
+                }
+            }
+        }
+        return testAnnotationSources;
+    }
+
     public static List<Segment> generateTestSegments(String day, String shard, String datatype) {
         switch (datatype) {
             case "audio": // an imaginary audio (temporal) dataset
