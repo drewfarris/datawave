@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 
 import datawave.annotation.protobuf.v1.Annotation;
+import datawave.annotation.protobuf.v1.AnnotationSource;
 import datawave.annotation.protobuf.v1.Point;
 import datawave.annotation.protobuf.v1.Segment;
 import datawave.annotation.protobuf.v1.SegmentBoundary;
@@ -22,6 +23,20 @@ import datawave.data.hash.HashUID;
  * the data access objects.
  */
 public class AnnotationTestDataUtil {
+    public static AnnotationSource generateTestAnnotationSource() {
+        //@formatter:off
+        return AnnotationSource.newBuilder()
+                .setEngine("inline v6")
+                .setModel("GR Supra")
+                .setSourceLabel("Toyota")
+                .putConfiguration("visibility", "PUBLIC")
+                .putConfiguration("created_date","2025-11-01T12:00:00.000Z")
+                .putConfiguration("octane","99")
+                .putConfiguration("model_year", "2025")
+                .build();
+        //@formatter:on
+    }
+
     public static Annotation generateTestAnnotation() {
         //@formatter:off
         return Annotation.newBuilder()

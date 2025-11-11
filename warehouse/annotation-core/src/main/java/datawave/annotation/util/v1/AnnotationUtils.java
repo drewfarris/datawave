@@ -9,6 +9,7 @@ import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 
 import datawave.annotation.protobuf.v1.Annotation;
+import datawave.annotation.protobuf.v1.AnnotationSource;
 import datawave.annotation.protobuf.v1.Segment;
 import datawave.annotation.protobuf.v1.SegmentBoundary;
 import datawave.annotation.protobuf.v1.SegmentValue;
@@ -136,6 +137,20 @@ public class AnnotationUtils {
     }
 
     /**
+     * Utility method to generate and inject the annotation source identifier into the annotation source. included in the serialized result and supports
+     * deserialization. The identifier is a hash of certain values in the annotation source. This should generally be called by and data access object just
+     * prior to writing the annotation.
+     *
+     * @param annotationSource
+     *            the annotation to inject.
+     * @return the annotation with boundary type injected.
+     */
+    public static AnnotationSource injectAnnotationSourceId(AnnotationSource annotationSource) {
+        final String hash = calculateAnnotationSourceHash(annotationSource);
+        return annotationSource.toBuilder().setSourceId(hash).build();
+    }
+
+    /**
      * Utility method to generate and inject the annotation identifier into the annotation. included in the serialized result and support deserialization. The
      * identifier is a hash of certain values in the annotation. This should generally be called by and data access object just prior to writing the annotation.
      *
@@ -159,6 +174,33 @@ public class AnnotationUtils {
     public static Segment injectSegmentId(Segment segment) {
         final String hash = calculateSegmentHash(segment);
         return segment.toBuilder().setSegmentId(hash).build();
+    }
+
+    /**
+     * Calculate the 32-bit murmur3 hash used to identify an annotation source, this includes the following attributes:
+     * <ul>
+     * <li>the annotation source engine</li>
+     * <li>the annotation source model</li>
+     * <li>the annotation source label</li>
+     * <li>the annotation source configuration</li>
+     * </ul>
+     *
+     * @param annotationSource
+     *            the annotation to hash.
+     * @return the calculated hash. TODO: validate that this is the right algorithm for hashing the segment.
+     */
+    @SuppressWarnings("UnstableApiUsage")
+    public static String calculateAnnotationSourceHash(AnnotationSource annotationSource) {
+        Hasher hasher = Hashing.murmur3_32_fixed().newHasher();
+        hasher.putString(annotationSource.getEngine(), StandardCharsets.UTF_8);
+        hasher.putString(annotationSource.getModel(), StandardCharsets.UTF_8);
+        hasher.putString(annotationSource.getSourceLabel(), StandardCharsets.UTF_8);
+
+        for (Map.Entry<String,String> e : annotationSource.getConfigurationMap().entrySet()) {
+            hasher.putString(e.getKey(), StandardCharsets.UTF_8);
+            hasher.putString(e.getValue(), StandardCharsets.UTF_8);
+        }
+        return hasher.hash().toString();
     }
 
     /**
