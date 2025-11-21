@@ -93,19 +93,19 @@ public class SegmentUtilsJsonTest {
 
     @Test
     public void testMultiSegmentBoundaryToJson() throws InvalidProtocolBufferException {
-        TimeSpanSeconds timeSpanSeconds = TimeSpanSeconds.newBuilder().setStartSeconds(1).setEndSeconds(2).build();
-        TextSpanChars textSpanChars = TextSpanChars.newBuilder().setStartCharacter(4).setEndCharacter(10).build();
+        TimeSpanSeconds timeSpanSeconds = TimeSpanSeconds.newBuilder().setStart(1).setEnd(2).build();
+        TextSpanChars textSpanChars = TextSpanChars.newBuilder().setStart(4).setEnd(10).build();
 
         // the behavior of this step is undefined - we should not try to set two different spans on a single segment boundary
         // in this case the behavior is determined by how we resolve boundary types in AnnotationUtils, but that's an
         // implementation detail. Also, this would be caught by something that checks the object for validity prior to
         // persistence.
-        SegmentBoundary bounds = SegmentBoundary.newBuilder().setTimeSpan(timeSpanSeconds).setCharacterSpan(textSpanChars).build();
+        SegmentBoundary bounds = SegmentBoundary.newBuilder().setTimeSpan(timeSpanSeconds).setTextSpan(textSpanChars).build();
 
         Segment s = Segment.newBuilder().setBoundary(bounds).build();
         String json = AnnotationJsonUtils.segmentToJsonWithBoundaryType(s);
         log.info(json);
-        assertFalse(json.contains("CHARACTER_SPAN"));
+        assertFalse(json.contains("TEXT_SPAN"));
         assertTrue(json.contains("TIME_SPAN"));
     }
 
@@ -113,7 +113,7 @@ public class SegmentUtilsJsonTest {
     public void testFromJson() throws Exception {
         Segment s = AnnotationJsonUtils.segmentFromJson(testJson);
         log.info(s.toString());
-        assertEquals("5674ff10", s.getSegmentId());
+        assertEquals("5674ff10", s.getSegmentHash());
         List<SegmentValue> segmentValueList = s.getValuesList();
         assertEquals(1, segmentValueList.size());
         SegmentValue sv = segmentValueList.get(0);
@@ -122,8 +122,8 @@ public class SegmentUtilsJsonTest {
         SegmentBoundary bounds = s.getBoundary();
         assertEquals(AnnotationUtils.BoundaryCase.TIME_SPAN, getBoundaryCase(bounds));
         TimeSpanSeconds span = bounds.getTimeSpan();
-        assertEquals(0.154, span.getStartSeconds());
-        assertEquals(0.52, span.getEndSeconds());
+        assertEquals(0.154, span.getStart());
+        assertEquals(0.52, span.getEnd());
         assertEquals("TIME_SPAN", bounds.getBoundaryType());
     }
 

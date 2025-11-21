@@ -4,7 +4,6 @@ import static datawave.annotation.data.v1.AccumuloAnnotationSourceSerializer.COL
 import static datawave.annotation.data.v1.AccumuloAnnotationSourceSerializer.CONFIG_COLUMN_FAMILY;
 import static datawave.annotation.data.v1.AccumuloAnnotationSourceSerializer.ENGINE_COLUMN_FAMILY;
 import static datawave.annotation.data.v1.AccumuloAnnotationSourceSerializer.MODEL_COLUMN_FAMILY;
-import static datawave.annotation.data.v1.AccumuloAnnotationSourceSerializer.SOURCE_LABEL_COLUMN_FAMILY;
 import static datawave.annotation.test.v1.AnnotationAssertions.assertAnnotationSourcesEqual;
 import static datawave.annotation.test.v1.AnnotationAssertions.assertMetadataEqual;
 import static datawave.annotation.test.v1.AnnotationTestDataUtil.generateTestAnnotationSource;
@@ -44,7 +43,7 @@ public class AccumuloAnnotationSourceSerializerTest {
         AnnotationSource testAnnotationSource = generateTestAnnotationSource();
         // an id must be assigned to serialize/deserialize an annotation - typically this is handled by the data
         // access object.
-        AnnotationSource expectedAnnotationSource = AnnotationUtils.injectAnnotationSourceId(testAnnotationSource);
+        AnnotationSource expectedAnnotationSource = AnnotationUtils.injectAnnotationSourceHashes(testAnnotationSource);
 
         DefaultVisibilityTransformer visibilityTransformer = new DefaultVisibilityTransformer();
         DefaultTimestampTransformer timestampTransformer = new DefaultTimestampTransformer();
@@ -113,13 +112,6 @@ public class AccumuloAnnotationSourceSerializerTest {
                     }
                     assertEquals(expected.getModel(), columnQualifier);
                     seenModel = true;
-                    break;
-                case SOURCE_LABEL_COLUMN_FAMILY:
-                    if (seenSourceLabel) {
-                        fail("Multiple 'sourceLabel' entries seen in columnFamily: " + key + "'");
-                    }
-                    assertEquals(expected.getSourceLabel(), columnQualifier);
-                    seenSourceLabel = true;
                     break;
                 case CONFIG_COLUMN_FAMILY:
                     String[] cqParts = key.getColumnQualifier().toString().split("\0");

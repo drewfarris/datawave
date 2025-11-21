@@ -40,30 +40,30 @@ public final class TimeSpanSeconds extends com.google.protobuf.GeneratedMessageV
                                         datawave.annotation.protobuf.v1.TimeSpanSeconds.Builder.class);
     }
 
-    public static final int STARTSECONDS_FIELD_NUMBER = 1;
-    private double startSeconds_;
+    public static final int START_FIELD_NUMBER = 1;
+    private float start_;
 
     /**
-     * <code>double startSeconds = 1;</code>
+     * <code>float start = 1;</code>
      *
-     * @return The startSeconds.
+     * @return The start.
      */
     @java.lang.Override
-    public double getStartSeconds() {
-        return startSeconds_;
+    public float getStart() {
+        return start_;
     }
 
-    public static final int ENDSECONDS_FIELD_NUMBER = 2;
-    private double endSeconds_;
+    public static final int END_FIELD_NUMBER = 2;
+    private float end_;
 
     /**
-     * <code>double endSeconds = 2;</code>
+     * <code>float end = 2;</code>
      *
-     * @return The endSeconds.
+     * @return The end.
      */
     @java.lang.Override
-    public double getEndSeconds() {
-        return endSeconds_;
+    public float getEnd() {
+        return end_;
     }
 
     private byte memoizedIsInitialized = -1;
@@ -82,11 +82,11 @@ public final class TimeSpanSeconds extends com.google.protobuf.GeneratedMessageV
 
     @java.lang.Override
     public void writeTo(com.google.protobuf.CodedOutputStream output) throws java.io.IOException {
-        if (startSeconds_ != 0D) {
-            output.writeDouble(1, startSeconds_);
+        if (start_ != 0F) {
+            output.writeFloat(1, start_);
         }
-        if (endSeconds_ != 0D) {
-            output.writeDouble(2, endSeconds_);
+        if (end_ != 0F) {
+            output.writeFloat(2, end_);
         }
         getUnknownFields().writeTo(output);
     }
@@ -98,11 +98,11 @@ public final class TimeSpanSeconds extends com.google.protobuf.GeneratedMessageV
             return size;
 
         size = 0;
-        if (startSeconds_ != 0D) {
-            size += com.google.protobuf.CodedOutputStream.computeDoubleSize(1, startSeconds_);
+        if (start_ != 0F) {
+            size += com.google.protobuf.CodedOutputStream.computeFloatSize(1, start_);
         }
-        if (endSeconds_ != 0D) {
-            size += com.google.protobuf.CodedOutputStream.computeDoubleSize(2, endSeconds_);
+        if (end_ != 0F) {
+            size += com.google.protobuf.CodedOutputStream.computeFloatSize(2, end_);
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -119,9 +119,9 @@ public final class TimeSpanSeconds extends com.google.protobuf.GeneratedMessageV
         }
         datawave.annotation.protobuf.v1.TimeSpanSeconds other = (datawave.annotation.protobuf.v1.TimeSpanSeconds) obj;
 
-        if (java.lang.Double.doubleToLongBits(getStartSeconds()) != java.lang.Double.doubleToLongBits(other.getStartSeconds()))
+        if (java.lang.Float.floatToIntBits(getStart()) != java.lang.Float.floatToIntBits(other.getStart()))
             return false;
-        if (java.lang.Double.doubleToLongBits(getEndSeconds()) != java.lang.Double.doubleToLongBits(other.getEndSeconds()))
+        if (java.lang.Float.floatToIntBits(getEnd()) != java.lang.Float.floatToIntBits(other.getEnd()))
             return false;
         if (!getUnknownFields().equals(other.getUnknownFields()))
             return false;
@@ -135,10 +135,10 @@ public final class TimeSpanSeconds extends com.google.protobuf.GeneratedMessageV
         }
         int hash = 41;
         hash = (19 * hash) + getDescriptor().hashCode();
-        hash = (37 * hash) + STARTSECONDS_FIELD_NUMBER;
-        hash = (53 * hash) + com.google.protobuf.Internal.hashLong(java.lang.Double.doubleToLongBits(getStartSeconds()));
-        hash = (37 * hash) + ENDSECONDS_FIELD_NUMBER;
-        hash = (53 * hash) + com.google.protobuf.Internal.hashLong(java.lang.Double.doubleToLongBits(getEndSeconds()));
+        hash = (37 * hash) + START_FIELD_NUMBER;
+        hash = (53 * hash) + java.lang.Float.floatToIntBits(getStart());
+        hash = (37 * hash) + END_FIELD_NUMBER;
+        hash = (53 * hash) + java.lang.Float.floatToIntBits(getEnd());
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
         return hash;
@@ -254,9 +254,9 @@ public final class TimeSpanSeconds extends com.google.protobuf.GeneratedMessageV
         @java.lang.Override
         public Builder clear() {
             super.clear();
-            startSeconds_ = 0D;
+            start_ = 0F;
 
-            endSeconds_ = 0D;
+            end_ = 0F;
 
             return this;
         }
@@ -283,8 +283,8 @@ public final class TimeSpanSeconds extends com.google.protobuf.GeneratedMessageV
         @java.lang.Override
         public datawave.annotation.protobuf.v1.TimeSpanSeconds buildPartial() {
             datawave.annotation.protobuf.v1.TimeSpanSeconds result = new datawave.annotation.protobuf.v1.TimeSpanSeconds(this);
-            result.startSeconds_ = startSeconds_;
-            result.endSeconds_ = endSeconds_;
+            result.start_ = start_;
+            result.end_ = end_;
             onBuilt();
             return result;
         }
@@ -332,11 +332,11 @@ public final class TimeSpanSeconds extends com.google.protobuf.GeneratedMessageV
         public Builder mergeFrom(datawave.annotation.protobuf.v1.TimeSpanSeconds other) {
             if (other == datawave.annotation.protobuf.v1.TimeSpanSeconds.getDefaultInstance())
                 return this;
-            if (other.getStartSeconds() != 0D) {
-                setStartSeconds(other.getStartSeconds());
+            if (other.getStart() != 0F) {
+                setStart(other.getStart());
             }
-            if (other.getEndSeconds() != 0D) {
-                setEndSeconds(other.getEndSeconds());
+            if (other.getEnd() != 0F) {
+                setEnd(other.getEnd());
             }
             this.mergeUnknownFields(other.getUnknownFields());
             onChanged();
@@ -362,16 +362,16 @@ public final class TimeSpanSeconds extends com.google.protobuf.GeneratedMessageV
                         case 0:
                             done = true;
                             break;
-                        case 9: {
-                            startSeconds_ = input.readDouble();
+                        case 13: {
+                            start_ = input.readFloat();
 
                             break;
-                        } // case 9
-                        case 17: {
-                            endSeconds_ = input.readDouble();
+                        } // case 13
+                        case 21: {
+                            end_ = input.readFloat();
 
                             break;
-                        } // case 17
+                        } // case 21
                         default: {
                             if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                                 done = true; // was an endgroup tag
@@ -388,78 +388,78 @@ public final class TimeSpanSeconds extends com.google.protobuf.GeneratedMessageV
             return this;
         }
 
-        private double startSeconds_;
+        private float start_;
 
         /**
-         * <code>double startSeconds = 1;</code>
+         * <code>float start = 1;</code>
          *
-         * @return The startSeconds.
+         * @return The start.
          */
         @java.lang.Override
-        public double getStartSeconds() {
-            return startSeconds_;
+        public float getStart() {
+            return start_;
         }
 
         /**
-         * <code>double startSeconds = 1;</code>
+         * <code>float start = 1;</code>
          *
          * @param value
-         *            The startSeconds to set.
+         *            The start to set.
          * @return This builder for chaining.
          */
-        public Builder setStartSeconds(double value) {
+        public Builder setStart(float value) {
 
-            startSeconds_ = value;
+            start_ = value;
             onChanged();
             return this;
         }
 
         /**
-         * <code>double startSeconds = 1;</code>
+         * <code>float start = 1;</code>
          *
          * @return This builder for chaining.
          */
-        public Builder clearStartSeconds() {
+        public Builder clearStart() {
 
-            startSeconds_ = 0D;
+            start_ = 0F;
             onChanged();
             return this;
         }
 
-        private double endSeconds_;
+        private float end_;
 
         /**
-         * <code>double endSeconds = 2;</code>
+         * <code>float end = 2;</code>
          *
-         * @return The endSeconds.
+         * @return The end.
          */
         @java.lang.Override
-        public double getEndSeconds() {
-            return endSeconds_;
+        public float getEnd() {
+            return end_;
         }
 
         /**
-         * <code>double endSeconds = 2;</code>
+         * <code>float end = 2;</code>
          *
          * @param value
-         *            The endSeconds to set.
+         *            The end to set.
          * @return This builder for chaining.
          */
-        public Builder setEndSeconds(double value) {
+        public Builder setEnd(float value) {
 
-            endSeconds_ = value;
+            end_ = value;
             onChanged();
             return this;
         }
 
         /**
-         * <code>double endSeconds = 2;</code>
+         * <code>float end = 2;</code>
          *
          * @return This builder for chaining.
          */
-        public Builder clearEndSeconds() {
+        public Builder clearEnd() {
 
-            endSeconds_ = 0D;
+            end_ = 0F;
             onChanged();
             return this;
         }

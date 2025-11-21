@@ -1,6 +1,6 @@
 package datawave.annotation.data.v1;
 
-import static datawave.annotation.data.v1.AccumuloAnnotationSerializer.ANALYTIC_HASH_KEY;
+import static datawave.annotation.data.v1.AccumuloAnnotationSerializer.ANALYTIC_SOURCE_HASH_KEY;
 import static datawave.annotation.data.v1.AccumuloAnnotationSerializer.DOCUMENT_ID_KEY;
 import static datawave.annotation.test.v1.AnnotationAssertions.assertAnnotationsEqual;
 import static datawave.annotation.test.v1.AnnotationAssertions.assertMetadataEqual;
@@ -67,7 +67,7 @@ public class AccumuloAnnotationSerializerTest {
         Annotation baseAnnotation = generateTestAnnotation();
 
         // enrich the base annotation with a document id and a source id.
-        Annotation testAnnotation = baseAnnotation.toBuilder().setDocumentId("a-good-document").setAnalyticHash("a-good-source").build();
+        Annotation testAnnotation = baseAnnotation.toBuilder().setDocumentId("a-good-document").setAnalyticSourceHash("a-good-source").build();
 
         // an id must be assigned to serialize/deserialize an annotation - typically this is handled by the data
         // access object.
@@ -124,7 +124,7 @@ public class AccumuloAnnotationSerializerTest {
             }
             if (parts.length == 3) {
                 switch (parts[1]) {
-                    case ANALYTIC_HASH_KEY:
+                    case ANALYTIC_SOURCE_HASH_KEY:
                         assertEquals("a-good-source", parts[2]);
                         break;
                     case DOCUMENT_ID_KEY:

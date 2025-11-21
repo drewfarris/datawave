@@ -484,7 +484,7 @@ public class AnnotationManagerBeanFunctionalTest {
                 "DOCUMENT",
                 expectedAnnotation.getShard() + "/" + expectedAnnotation.getDataType() + "/" + expectedAnnotation.getUid(),
                 expectedAnnotation.getAnnotationId(),
-                expectedAnnotation.getSegments(0).getSegmentId()
+                expectedAnnotation.getSegments(0).getSegmentHash()
         );
         //@formatter:on
 
@@ -516,7 +516,7 @@ public class AnnotationManagerBeanFunctionalTest {
     }
 
     @Test
-    public void testGetAnnotationSegmentInternalIdMissingSegmentId() {
+    public void testGetAnnotationSegmentInternalIdMissingSegmentHash() {
         //@formatter:off
         Response response = annotationManager.getAnnotationSegment(
                 "DOCUMENT",

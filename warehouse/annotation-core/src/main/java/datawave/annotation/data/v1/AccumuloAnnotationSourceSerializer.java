@@ -33,9 +33,8 @@ public class AccumuloAnnotationSourceSerializer implements AnnotationSerializer<
     public static final String CONFIG_COLUMN_FAMILY = "config";
     public static final String ENGINE_COLUMN_FAMILY = "engine";
     public static final String MODEL_COLUMN_FAMILY = "model";
-    public static final String SOURCE_LABEL_COLUMN_FAMILY = "sourceLabel";
 
-    public static final List<String> COLUMN_FAMILIES = List.of(ENGINE_COLUMN_FAMILY, MODEL_COLUMN_FAMILY, SOURCE_LABEL_COLUMN_FAMILY, CONFIG_COLUMN_FAMILY);
+    public static final List<String> COLUMN_FAMILIES = List.of(ENGINE_COLUMN_FAMILY, MODEL_COLUMN_FAMILY, CONFIG_COLUMN_FAMILY);
 
     final VisibilityTransformer visibilityTransformer;
     final TimestampTransformer timestampTransformer;
@@ -75,7 +74,6 @@ public class AccumuloAnnotationSourceSerializer implements AnnotationSerializer<
         // validate that the constituent part of the source have been found
         boolean seenEngine = false;
         boolean seenModel = false;
-        boolean seenSourceLabel = false;
         boolean seenConfig = false;
 
         while (elements.hasNext()) {
@@ -118,13 +116,6 @@ public class AccumuloAnnotationSourceSerializer implements AnnotationSerializer<
                     annotationSourceBuilder.setModel(columnQualifier);
                     seenModel = true;
                     break;
-                case SOURCE_LABEL_COLUMN_FAMILY:
-                    if (seenSourceLabel) {
-                        throw new AnnotationSerializationException("Multiple 'sourceLabel' entries seen in columnFamily: " + key + "'");
-                    }
-                    annotationSourceBuilder.setSourceLabel(columnQualifier);
-                    seenSourceLabel = true;
-                    break;
                 case CONFIG_COLUMN_FAMILY:
                     String[] cqParts = key.getColumnQualifier().toString().split("\0");
                     if (cqParts.length != 2) {
@@ -139,14 +130,13 @@ public class AccumuloAnnotationSourceSerializer implements AnnotationSerializer<
             }
         }
 
-        if (seenEngine && seenModel && seenSourceLabel && seenConfig) {
+        if (seenEngine && seenModel && seenConfig) {
             log.debug("annotation source is complete for: '{}'", baseKey);
         } else {
             //@formatter:off
             throw new AnnotationSerializationException("Did not observe expected portion of annotation source:" +
                     " engine: " + seenEngine +
                     " model: " + seenModel +
-                    " sourceLabel: " + seenSourceLabel +
                     " config: " + seenConfig + ". ");
             //@formatter:on
         }
@@ -213,15 +203,6 @@ public class AccumuloAnnotationSourceSerializer implements AnnotationSerializer<
                 .timestamp(baseKey.getTimestamp())
                 .build();
         serializedResults.add(Map.entry(modelKey, EMPTY));
-
-        final Key sourceLabelKey = Key.builder()
-                .row(baseKey.getRowData().getBackingArray())
-                .family(SOURCE_LABEL_COLUMN_FAMILY)
-                .qualifier(annotationSource.getSourceLabel())
-                .visibility(baseKey.getColumnVisibilityData().getBackingArray())
-                .timestamp(baseKey.getTimestamp())
-                .build();
-        serializedResults.add(Map.entry(sourceLabelKey, EMPTY));
         //@formatter:on
     }
 

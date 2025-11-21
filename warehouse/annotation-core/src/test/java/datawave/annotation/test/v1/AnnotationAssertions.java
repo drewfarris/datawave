@@ -24,10 +24,11 @@ import datawave.annotation.protobuf.v1.SegmentValue;
 public class AnnotationAssertions {
     public static void assertAnnotationSourcesEqual(AnnotationSource t, AnnotationSource a) {
         assertEquals(t.getAnalyticHash(), a.getAnalyticHash());
+        assertEquals(t.getAnalyticSourceHash(), a.getAnalyticSourceHash());
         assertEquals(t.getEngine(), a.getEngine());
         assertEquals(t.getModel(), a.getModel());
-        assertEquals(t.getSourceLabel(), a.getSourceLabel());
         assertEquals(t.getConfigurationMap(), a.getConfigurationMap());
+        assertEquals(t.getMetadataMap(), a.getMetadataMap());
     }
 
     public static void assertMetadataEqual(Map<String,String> expectedMetadata, List<Map.Entry<String,String>> observedMetadata) {
@@ -98,7 +99,7 @@ public class AnnotationAssertions {
     public static Map<String,Segment> indexSegments(Collection<Segment> input) {
         final Map<String,Segment> index = new HashMap<>();
         for (Segment s : input) {
-            index.put(s.getSegmentId(), s);
+            index.put(s.getSegmentHash(), s);
         }
         return index;
     }
@@ -115,8 +116,8 @@ public class AnnotationAssertions {
      *            results stored here.
      */
     public static void compareSegments(Segment expected, Segment result, List<String> errorMessages) {
-        if (!expected.getSegmentId().equals(result.getSegmentId())) {
-            errorMessages.add("Mismatched segment id's: expected " + expected.getSegmentId() + " result: " + result.getSegmentId());
+        if (!expected.getSegmentHash().equals(result.getSegmentHash())) {
+            errorMessages.add("Mismatched segment hashes: expected " + expected.getSegmentHash() + " result: " + result.getSegmentHash());
         }
 
         List<SegmentValue> expectedData = expected.getValuesList();
@@ -157,9 +158,9 @@ public class AnnotationAssertions {
                         errorMessages.add("Mismatched time boundary: expected " + expected.getTimeSpan() + " result: " + result.getTimeSpan());
                     }
                     break;
-                case CHARACTER_SPAN:
-                    if (!expected.getCharacterSpan().equals(result.getCharacterSpan())) {
-                        errorMessages.add("Mismatched text boundary: expected " + expected.getCharacterSpan() + " result: " + result.getCharacterSpan());
+                case TEXT_SPAN:
+                    if (!expected.getTextSpan().equals(result.getTextSpan())) {
+                        errorMessages.add("Mismatched text boundary: expected " + expected.getTextSpan() + " result: " + result.getTextSpan());
                     }
                     break;
                 case POINTS:

@@ -28,9 +28,8 @@ public class AnnotationTestDataUtil {
         return AnnotationSource.newBuilder()
                 .setEngine("inline v6")
                 .setModel("GR Supra")
-                .setSourceLabel("Toyota")
-                .putConfiguration("visibility", "PUBLIC")
-                .putConfiguration("created_date","2025-11-01T12:00:00Z")
+                .putMetadata("visibility", "PUBLIC")
+                .putMetadata("created_date","2025-11-01T12:00:00Z")
                 .putConfiguration("octane","99")
                 .putConfiguration("model_year", "2025")
                 .build();
@@ -44,12 +43,13 @@ public class AnnotationTestDataUtil {
                 .setDataType("testDataType")
                 .setUid("abcde.fghij.klmno")
                 .setAnnotationType("testAnnotationType")
+                .setDocumentId("1234567890")
                 .addAllSegments(List.of(generateMultiTestSegment()))
-                .putAllMetadata(generateTestMetadata()).build();
+                .putAllMetadata(generateTestAnnotationMetadata()).build();
         //@formatter:on
     }
 
-    public static Map<String,String> generateTestMetadata() {
+    public static Map<String,String> generateTestAnnotationMetadata() {
         Map<String,String> metadata = new HashMap<>();
         metadata.put("foo", "bar");
         metadata.put("plough", "plover");
@@ -59,7 +59,7 @@ public class AnnotationTestDataUtil {
     }
 
     public static Segment generateTestSegment() {
-        TimeSpanSeconds time = TimeSpanSeconds.newBuilder().setStartSeconds(0.154).setEndSeconds(0.52).build();
+        TimeSpanSeconds time = TimeSpanSeconds.newBuilder().setStart(0.154f).setEnd(0.52f).build();
         SegmentValue segmentValue = SegmentValue.newBuilder().setValue("horse").setScore(.21f).build();
         SegmentBoundary bounds = SegmentBoundary.newBuilder().setTimeSpan(time).build();
         Segment segment = Segment.newBuilder().addValues(segmentValue).setBoundary(bounds).build();
@@ -67,7 +67,7 @@ public class AnnotationTestDataUtil {
     }
 
     public static Segment generateMultiTestSegment() {
-        TimeSpanSeconds time = TimeSpanSeconds.newBuilder().setStartSeconds(0.154).setEndSeconds(0.52).build();
+        TimeSpanSeconds time = TimeSpanSeconds.newBuilder().setStart(0.154f).setEnd(0.52f).build();
         SegmentValue segmentValueOne = SegmentValue.newBuilder().setValue("cow").setScore(.235f).build();
         Map<String,String> extension = new HashMap<>();
         extension.put("objectType", "animal");
@@ -122,16 +122,19 @@ public class AnnotationTestDataUtil {
                     int pos = iteration % configurations.length;
                     iteration++;
                     //@formatter:off
+                    Map<String, String> metadata = Map.of(
+                        "visibility", "PUBLIC",
+                        "created_date", "2025-10-01T00:00:00Z",
+                        "provenance", engine + "/" + model
+                    );
+
                     Map<String, String> configuration = Map.of(
-                            "visibility", "PUBLIC",
-                            "created_date", "2025-10-01T00:00:00Z",
-                            "provenance", engine + "/" + model + "/" + sourceLabel,
-                            "normalization", configurations[pos]
+                        "normalization", configurations[pos]
                     );
                     AnnotationSource annotationSource = AnnotationSource.newBuilder()
                             .setEngine(engine)
                             .setModel(model)
-                            .setSourceLabel(sourceLabel)
+                            .putAllMetadata(metadata)
                             .putAllConfiguration(configuration)
                             .build();
                     testAnnotationSources.add(annotationSource);
@@ -163,7 +166,7 @@ public class AnnotationTestDataUtil {
 
         // generate a boundary of 1 second of duration every 10 seconds
         for (int i = 0; i < 100; i += 10) {
-            TimeSpanSeconds timeSpan = TimeSpanSeconds.newBuilder().setStartSeconds(i).setEndSeconds(i + 5).build();
+            TimeSpanSeconds timeSpan = TimeSpanSeconds.newBuilder().setStart(i).setEnd(i + 5).build();
             SegmentBoundary bounds = SegmentBoundary.newBuilder().setTimeSpan(timeSpan).build();
 
             SegmentValue valueOne = SegmentValue.newBuilder().setValue(words[wordPos]).setScore(.235f).build();
@@ -188,8 +191,8 @@ public class AnnotationTestDataUtil {
             int end = start + word.length();
 
             // character offsets
-            TextSpanChars charSpan = TextSpanChars.newBuilder().setStartCharacter(start).setEndCharacter(end).build();
-            SegmentBoundary bounds = SegmentBoundary.newBuilder().setCharacterSpan(charSpan).build();
+            TextSpanChars charSpan = TextSpanChars.newBuilder().setStart(start).setEnd(end).build();
+            SegmentBoundary bounds = SegmentBoundary.newBuilder().setTextSpan(charSpan).build();
 
             SegmentValue valueOne = SegmentValue.newBuilder().setValue(word).setScore(1.0f).build();
             Segment segment = Segment.newBuilder().setBoundary(bounds).addValues(valueOne).build();

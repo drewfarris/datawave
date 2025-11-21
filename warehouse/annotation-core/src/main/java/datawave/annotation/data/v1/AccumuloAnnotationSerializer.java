@@ -36,7 +36,7 @@ public class AccumuloAnnotationSerializer implements AnnotationSerializer<Iterat
     final TimestampTransformer timestampTransformer;
 
     public static final String DOCUMENT_ID_KEY = "documentId";
-    public static final String ANALYTIC_HASH_KEY = "analyticHash";
+    public static final String ANALYTIC_SOURCE_HASH_KEY = "analyticSourceHash";
 
     public AccumuloAnnotationSerializer() {
         this(DEFAULT_VISIBILITY_TRANSFORMER, DEFAULT_TIMESTAMP_TRANSFORMER);
@@ -94,8 +94,8 @@ public class AccumuloAnnotationSerializer implements AnnotationSerializer<Iterat
             String[] cqParts = key.getColumnQualifier().toString().split("\0");
             if (cqParts.length == 3) {
                 switch (cqParts[1]) {
-                    case ANALYTIC_HASH_KEY:
-                        annotationBuilder.setAnalyticHash(cqParts[2]);
+                    case ANALYTIC_SOURCE_HASH_KEY:
+                        annotationBuilder.setAnalyticSourceHash(cqParts[2]);
                         break;
                     case DOCUMENT_ID_KEY:
                         annotationBuilder.setDocumentId(cqParts[2]);
@@ -190,12 +190,13 @@ public class AccumuloAnnotationSerializer implements AnnotationSerializer<Iterat
         }
 
         // source id field
-        if (!StringUtils.isEmpty(annotation.getAnalyticHash())) {
+        if (!StringUtils.isEmpty(annotation.getAnalyticSourceHash())) {
             // use the source id if set.
-            serializedResults.add(generateMetadataEntry(baseKey, annotation.getAnnotationId(), ANALYTIC_HASH_KEY, annotation.getAnalyticHash()));
+            serializedResults.add(generateMetadataEntry(baseKey, annotation.getAnnotationId(), ANALYTIC_SOURCE_HASH_KEY, annotation.getAnalyticSourceHash()));
         } else if (annotation.hasSource() && !StringUtils.isEmpty(annotation.getSource().getAnalyticHash())) {
             // use the source's id if set if source id isn't set.
-            serializedResults.add(generateMetadataEntry(baseKey, annotation.getAnnotationId(), ANALYTIC_HASH_KEY, annotation.getSource().getAnalyticHash()));
+            serializedResults.add(
+                            generateMetadataEntry(baseKey, annotation.getAnnotationId(), ANALYTIC_SOURCE_HASH_KEY, annotation.getSource().getAnalyticHash()));
         }
     }
 
@@ -259,7 +260,7 @@ public class AccumuloAnnotationSerializer implements AnnotationSerializer<Iterat
     protected static Map.Entry<Key,Value> serializeSegment(Key baseKey, String annotationId, Segment segment) {
         Value value = new Value(segment.toByteArray());
 
-        final String columnQualifier = annotationId + NULL + segment.getSegmentId();
+        final String columnQualifier = annotationId + NULL + segment.getSegmentHash();
         //@formatter:off
         final Key key = Key.builder()
                 .row(baseKey.getRowData().getBackingArray())

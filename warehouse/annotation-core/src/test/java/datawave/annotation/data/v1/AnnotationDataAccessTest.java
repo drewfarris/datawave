@@ -261,7 +261,7 @@ public class AnnotationDataAccessTest {
         assertTrue(StringUtils.isNotBlank(addedAnnotationSource.get().getAnalyticHash()));
 
         // we expect the test annotation to have the same id injected as the annotation retuned from the dao.
-        AnnotationSource expectedAnnotationSource = AnnotationUtils.injectAnnotationSourceId(sourceAnnotationSource);
+        AnnotationSource expectedAnnotationSource = AnnotationUtils.injectAnnotationSourceHashes(sourceAnnotationSource);
         assertEquals(addedAnnotationSource.get().getAnalyticHash(), expectedAnnotationSource.getAnalyticHash());
 
         Optional<AnnotationSource> annotationSource = dao.getAnnotationSource(expectedAnnotationSource.getAnalyticHash());
@@ -277,7 +277,6 @@ public class AnnotationDataAccessTest {
         AnnotationSource as = annotationOptional.get();
         assertEquals("v6", as.getEngine());
         assertEquals("avalon", as.getModel());
-        assertEquals("toyota", as.getSourceLabel());
         assertExpectedAnnotationSourceConfig(as.getConfigurationMap());
     }
 
@@ -360,8 +359,8 @@ public class AnnotationDataAccessTest {
         for (Segment segment : segments) {
             // TODO: test extensions
             SegmentValue expectedValue = SegmentValue.newBuilder().setValue(expectedWords[pos]).setScore(1.0f).build();
-            TextSpanChars expectedSpan = TextSpanChars.newBuilder().setStartCharacter(expectedStarts[pos])
-                            .setEndCharacter(expectedStarts[pos] + expectedWords[pos].length()).build();
+            TextSpanChars expectedSpan = TextSpanChars.newBuilder().setStart(expectedStarts[pos])
+                            .setEnd(expectedStarts[pos] + expectedWords[pos].length()).build();
             pos++;
 
             List<SegmentValue> observedValues = segment.getValuesList();
@@ -369,7 +368,7 @@ public class AnnotationDataAccessTest {
             assertEquals(1, observedValues.size());
             SegmentValue observedValue = observedValues.get(0);
             SegmentBoundary bounds = segment.getBoundary();
-            TextSpanChars observedSpan = bounds.getCharacterSpan();
+            TextSpanChars observedSpan = bounds.getTextSpan();
 
             // we want to see all errors, so don't stop on the first failure.
             evaluateTextSegmentMatch(errorMessages, expectedValue, expectedSpan, observedValue, observedSpan);
@@ -396,10 +395,10 @@ public class AnnotationDataAccessTest {
     public static void evaluateTextSegmentMatch(List<String> errorMessages, SegmentValue expectedValue, TextSpanChars expectedBoundary,
                     SegmentValue observedValue, TextSpanChars observedBoundary) {
         String expectedWord = expectedValue.getValue();
-        long expectedStart = expectedBoundary.getStartCharacter();
+        long expectedStart = expectedBoundary.getStart();
 
         String observedWord = observedValue.getValue();
-        long observedStart = observedBoundary.getStartCharacter();
+        long observedStart = observedBoundary.getStart();
 
         if (!(expectedWord.equals(observedWord) && expectedStart == observedStart)) {
             String message = String.format("Segment mismatch: value: '%s', expected value: '%s',  start: %s, expected start: %s\n", observedWord, expectedWord,

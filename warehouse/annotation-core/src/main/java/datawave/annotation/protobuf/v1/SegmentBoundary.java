@@ -49,7 +49,7 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
 
     /**
      * <pre>
-     * currently 'all', 'points', 'times', 'characters', should match the name of the field where data is stored.
+     * currently 'all', 'points', 'time_span', 'text_span'.
      * </pre>
      *
      * <code>string boundaryType = 1;</code>
@@ -71,7 +71,7 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
 
     /**
      * <pre>
-     * currently 'all', 'points', 'times', 'characters', should match the name of the field where data is stored.
+     * currently 'all', 'points', 'time_span', 'text_span'.
      * </pre>
      *
      * <code>string boundaryType = 1;</code>
@@ -176,20 +176,20 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
         return timeSpan_ == null ? datawave.annotation.protobuf.v1.TimeSpanSeconds.getDefaultInstance() : timeSpan_;
     }
 
-    public static final int CHARACTERSPAN_FIELD_NUMBER = 22;
-    private datawave.annotation.protobuf.v1.TextSpanChars characterSpan_;
+    public static final int TEXTSPAN_FIELD_NUMBER = 22;
+    private datawave.annotation.protobuf.v1.TextSpanChars textSpan_;
 
     /**
      * <pre>
      * a start and end character.
      * </pre>
      *
-     * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+     * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
      *
-     * @return Whether the characterSpan field is set.
+     * @return Whether the textSpan field is set.
      */
     @java.lang.Override
-    public boolean hasCharacterSpan() {
+    public boolean hasTextSpan() {
         return ((bitField0_ & 0x00000004) != 0);
     }
 
@@ -198,13 +198,13 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
      * a start and end character.
      * </pre>
      *
-     * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+     * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
      *
-     * @return The characterSpan.
+     * @return The textSpan.
      */
     @java.lang.Override
-    public datawave.annotation.protobuf.v1.TextSpanChars getCharacterSpan() {
-        return characterSpan_ == null ? datawave.annotation.protobuf.v1.TextSpanChars.getDefaultInstance() : characterSpan_;
+    public datawave.annotation.protobuf.v1.TextSpanChars getTextSpan() {
+        return textSpan_ == null ? datawave.annotation.protobuf.v1.TextSpanChars.getDefaultInstance() : textSpan_;
     }
 
     /**
@@ -212,11 +212,11 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
      * a start and end character.
      * </pre>
      *
-     * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+     * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
      */
     @java.lang.Override
-    public datawave.annotation.protobuf.v1.TextSpanCharsOrBuilder getCharacterSpanOrBuilder() {
-        return characterSpan_ == null ? datawave.annotation.protobuf.v1.TextSpanChars.getDefaultInstance() : characterSpan_;
+    public datawave.annotation.protobuf.v1.TextSpanCharsOrBuilder getTextSpanOrBuilder() {
+        return textSpan_ == null ? datawave.annotation.protobuf.v1.TextSpanChars.getDefaultInstance() : textSpan_;
     }
 
     public static final int POINTS_FIELD_NUMBER = 23;
@@ -308,7 +308,7 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
             output.writeMessage(21, getTimeSpan());
         }
         if (((bitField0_ & 0x00000004) != 0)) {
-            output.writeMessage(22, getCharacterSpan());
+            output.writeMessage(22, getTextSpan());
         }
         for (int i = 0; i < points_.size(); i++) {
             output.writeMessage(23, points_.get(i));
@@ -333,7 +333,7 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
             size += com.google.protobuf.CodedOutputStream.computeMessageSize(21, getTimeSpan());
         }
         if (((bitField0_ & 0x00000004) != 0)) {
-            size += com.google.protobuf.CodedOutputStream.computeMessageSize(22, getCharacterSpan());
+            size += com.google.protobuf.CodedOutputStream.computeMessageSize(22, getTextSpan());
         }
         for (int i = 0; i < points_.size(); i++) {
             size += com.google.protobuf.CodedOutputStream.computeMessageSize(23, points_.get(i));
@@ -367,10 +367,10 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
             if (!getTimeSpan().equals(other.getTimeSpan()))
                 return false;
         }
-        if (hasCharacterSpan() != other.hasCharacterSpan())
+        if (hasTextSpan() != other.hasTextSpan())
             return false;
-        if (hasCharacterSpan()) {
-            if (!getCharacterSpan().equals(other.getCharacterSpan()))
+        if (hasTextSpan()) {
+            if (!getTextSpan().equals(other.getTextSpan()))
                 return false;
         }
         if (!getPointsList().equals(other.getPointsList()))
@@ -397,9 +397,9 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
             hash = (37 * hash) + TIMESPAN_FIELD_NUMBER;
             hash = (53 * hash) + getTimeSpan().hashCode();
         }
-        if (hasCharacterSpan()) {
-            hash = (37 * hash) + CHARACTERSPAN_FIELD_NUMBER;
-            hash = (53 * hash) + getCharacterSpan().hashCode();
+        if (hasTextSpan()) {
+            hash = (37 * hash) + TEXTSPAN_FIELD_NUMBER;
+            hash = (53 * hash) + getTextSpan().hashCode();
         }
         if (getPointsCount() > 0) {
             hash = (37 * hash) + POINTS_FIELD_NUMBER;
@@ -521,7 +521,7 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
             if (com.google.protobuf.GeneratedMessageV3.alwaysUseFieldBuilders) {
                 getAllFieldBuilder();
                 getTimeSpanFieldBuilder();
-                getCharacterSpanFieldBuilder();
+                getTextSpanFieldBuilder();
                 getPointsFieldBuilder();
             }
         }
@@ -543,10 +543,10 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
                 timeSpanBuilder_.clear();
             }
             bitField0_ = (bitField0_ & ~0x00000002);
-            if (characterSpanBuilder_ == null) {
-                characterSpan_ = null;
+            if (textSpanBuilder_ == null) {
+                textSpan_ = null;
             } else {
-                characterSpanBuilder_.clear();
+                textSpanBuilder_.clear();
             }
             bitField0_ = (bitField0_ & ~0x00000004);
             if (pointsBuilder_ == null) {
@@ -601,10 +601,10 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
                 to_bitField0_ |= 0x00000002;
             }
             if (((from_bitField0_ & 0x00000004) != 0)) {
-                if (characterSpanBuilder_ == null) {
-                    result.characterSpan_ = characterSpan_;
+                if (textSpanBuilder_ == null) {
+                    result.textSpan_ = textSpan_;
                 } else {
-                    result.characterSpan_ = characterSpanBuilder_.build();
+                    result.textSpan_ = textSpanBuilder_.build();
                 }
                 to_bitField0_ |= 0x00000004;
             }
@@ -675,8 +675,8 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
             if (other.hasTimeSpan()) {
                 mergeTimeSpan(other.getTimeSpan());
             }
-            if (other.hasCharacterSpan()) {
-                mergeCharacterSpan(other.getCharacterSpan());
+            if (other.hasTextSpan()) {
+                mergeTextSpan(other.getTextSpan());
             }
             if (pointsBuilder_ == null) {
                 if (!other.points_.isEmpty()) {
@@ -742,7 +742,7 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
                             break;
                         } // case 170
                         case 178: {
-                            input.readMessage(getCharacterSpanFieldBuilder().getBuilder(), extensionRegistry);
+                            input.readMessage(getTextSpanFieldBuilder().getBuilder(), extensionRegistry);
                             bitField0_ |= 0x00000004;
                             break;
                         } // case 178
@@ -778,7 +778,7 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
 
         /**
          * <pre>
-         * currently 'all', 'points', 'times', 'characters', should match the name of the field where data is stored.
+         * currently 'all', 'points', 'time_span', 'text_span'.
          * </pre>
          *
          * <code>string boundaryType = 1;</code>
@@ -799,7 +799,7 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
 
         /**
          * <pre>
-         * currently 'all', 'points', 'times', 'characters', should match the name of the field where data is stored.
+         * currently 'all', 'points', 'time_span', 'text_span'.
          * </pre>
          *
          * <code>string boundaryType = 1;</code>
@@ -819,7 +819,7 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
 
         /**
          * <pre>
-         * currently 'all', 'points', 'times', 'characters', should match the name of the field where data is stored.
+         * currently 'all', 'points', 'time_span', 'text_span'.
          * </pre>
          *
          * <code>string boundaryType = 1;</code>
@@ -840,7 +840,7 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
 
         /**
          * <pre>
-         * currently 'all', 'points', 'times', 'characters', should match the name of the field where data is stored.
+         * currently 'all', 'points', 'time_span', 'text_span'.
          * </pre>
          *
          * <code>string boundaryType = 1;</code>
@@ -856,7 +856,7 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
 
         /**
          * <pre>
-         * currently 'all', 'points', 'times', 'characters', should match the name of the field where data is stored.
+         * currently 'all', 'points', 'time_span', 'text_span'.
          * </pre>
          *
          * <code>string boundaryType = 1;</code>
@@ -1189,19 +1189,19 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
             return timeSpanBuilder_;
         }
 
-        private datawave.annotation.protobuf.v1.TextSpanChars characterSpan_;
-        private com.google.protobuf.SingleFieldBuilderV3<datawave.annotation.protobuf.v1.TextSpanChars,datawave.annotation.protobuf.v1.TextSpanChars.Builder,datawave.annotation.protobuf.v1.TextSpanCharsOrBuilder> characterSpanBuilder_;
+        private datawave.annotation.protobuf.v1.TextSpanChars textSpan_;
+        private com.google.protobuf.SingleFieldBuilderV3<datawave.annotation.protobuf.v1.TextSpanChars,datawave.annotation.protobuf.v1.TextSpanChars.Builder,datawave.annotation.protobuf.v1.TextSpanCharsOrBuilder> textSpanBuilder_;
 
         /**
          * <pre>
          * a start and end character.
          * </pre>
          *
-         * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+         * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
          *
-         * @return Whether the characterSpan field is set.
+         * @return Whether the textSpan field is set.
          */
-        public boolean hasCharacterSpan() {
+        public boolean hasTextSpan() {
             return ((bitField0_ & 0x00000004) != 0);
         }
 
@@ -1210,15 +1210,15 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
          * a start and end character.
          * </pre>
          *
-         * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+         * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
          *
-         * @return The characterSpan.
+         * @return The textSpan.
          */
-        public datawave.annotation.protobuf.v1.TextSpanChars getCharacterSpan() {
-            if (characterSpanBuilder_ == null) {
-                return characterSpan_ == null ? datawave.annotation.protobuf.v1.TextSpanChars.getDefaultInstance() : characterSpan_;
+        public datawave.annotation.protobuf.v1.TextSpanChars getTextSpan() {
+            if (textSpanBuilder_ == null) {
+                return textSpan_ == null ? datawave.annotation.protobuf.v1.TextSpanChars.getDefaultInstance() : textSpan_;
             } else {
-                return characterSpanBuilder_.getMessage();
+                return textSpanBuilder_.getMessage();
             }
         }
 
@@ -1227,17 +1227,17 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
          * a start and end character.
          * </pre>
          *
-         * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+         * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
          */
-        public Builder setCharacterSpan(datawave.annotation.protobuf.v1.TextSpanChars value) {
-            if (characterSpanBuilder_ == null) {
+        public Builder setTextSpan(datawave.annotation.protobuf.v1.TextSpanChars value) {
+            if (textSpanBuilder_ == null) {
                 if (value == null) {
                     throw new NullPointerException();
                 }
-                characterSpan_ = value;
+                textSpan_ = value;
                 onChanged();
             } else {
-                characterSpanBuilder_.setMessage(value);
+                textSpanBuilder_.setMessage(value);
             }
             bitField0_ |= 0x00000004;
             return this;
@@ -1248,14 +1248,14 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
          * a start and end character.
          * </pre>
          *
-         * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+         * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
          */
-        public Builder setCharacterSpan(datawave.annotation.protobuf.v1.TextSpanChars.Builder builderForValue) {
-            if (characterSpanBuilder_ == null) {
-                characterSpan_ = builderForValue.build();
+        public Builder setTextSpan(datawave.annotation.protobuf.v1.TextSpanChars.Builder builderForValue) {
+            if (textSpanBuilder_ == null) {
+                textSpan_ = builderForValue.build();
                 onChanged();
             } else {
-                characterSpanBuilder_.setMessage(builderForValue.build());
+                textSpanBuilder_.setMessage(builderForValue.build());
             }
             bitField0_ |= 0x00000004;
             return this;
@@ -1266,19 +1266,18 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
          * a start and end character.
          * </pre>
          *
-         * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+         * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
          */
-        public Builder mergeCharacterSpan(datawave.annotation.protobuf.v1.TextSpanChars value) {
-            if (characterSpanBuilder_ == null) {
-                if (((bitField0_ & 0x00000004) != 0) && characterSpan_ != null
-                                && characterSpan_ != datawave.annotation.protobuf.v1.TextSpanChars.getDefaultInstance()) {
-                    characterSpan_ = datawave.annotation.protobuf.v1.TextSpanChars.newBuilder(characterSpan_).mergeFrom(value).buildPartial();
+        public Builder mergeTextSpan(datawave.annotation.protobuf.v1.TextSpanChars value) {
+            if (textSpanBuilder_ == null) {
+                if (((bitField0_ & 0x00000004) != 0) && textSpan_ != null && textSpan_ != datawave.annotation.protobuf.v1.TextSpanChars.getDefaultInstance()) {
+                    textSpan_ = datawave.annotation.protobuf.v1.TextSpanChars.newBuilder(textSpan_).mergeFrom(value).buildPartial();
                 } else {
-                    characterSpan_ = value;
+                    textSpan_ = value;
                 }
                 onChanged();
             } else {
-                characterSpanBuilder_.mergeFrom(value);
+                textSpanBuilder_.mergeFrom(value);
             }
             bitField0_ |= 0x00000004;
             return this;
@@ -1289,14 +1288,14 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
          * a start and end character.
          * </pre>
          *
-         * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+         * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
          */
-        public Builder clearCharacterSpan() {
-            if (characterSpanBuilder_ == null) {
-                characterSpan_ = null;
+        public Builder clearTextSpan() {
+            if (textSpanBuilder_ == null) {
+                textSpan_ = null;
                 onChanged();
             } else {
-                characterSpanBuilder_.clear();
+                textSpanBuilder_.clear();
             }
             bitField0_ = (bitField0_ & ~0x00000004);
             return this;
@@ -1307,12 +1306,12 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
          * a start and end character.
          * </pre>
          *
-         * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+         * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
          */
-        public datawave.annotation.protobuf.v1.TextSpanChars.Builder getCharacterSpanBuilder() {
+        public datawave.annotation.protobuf.v1.TextSpanChars.Builder getTextSpanBuilder() {
             bitField0_ |= 0x00000004;
             onChanged();
-            return getCharacterSpanFieldBuilder().getBuilder();
+            return getTextSpanFieldBuilder().getBuilder();
         }
 
         /**
@@ -1320,13 +1319,13 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
          * a start and end character.
          * </pre>
          *
-         * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+         * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
          */
-        public datawave.annotation.protobuf.v1.TextSpanCharsOrBuilder getCharacterSpanOrBuilder() {
-            if (characterSpanBuilder_ != null) {
-                return characterSpanBuilder_.getMessageOrBuilder();
+        public datawave.annotation.protobuf.v1.TextSpanCharsOrBuilder getTextSpanOrBuilder() {
+            if (textSpanBuilder_ != null) {
+                return textSpanBuilder_.getMessageOrBuilder();
             } else {
-                return characterSpan_ == null ? datawave.annotation.protobuf.v1.TextSpanChars.getDefaultInstance() : characterSpan_;
+                return textSpan_ == null ? datawave.annotation.protobuf.v1.TextSpanChars.getDefaultInstance() : textSpan_;
             }
         }
 
@@ -1335,15 +1334,15 @@ public final class SegmentBoundary extends com.google.protobuf.GeneratedMessageV
          * a start and end character.
          * </pre>
          *
-         * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+         * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
          */
-        private com.google.protobuf.SingleFieldBuilderV3<datawave.annotation.protobuf.v1.TextSpanChars,datawave.annotation.protobuf.v1.TextSpanChars.Builder,datawave.annotation.protobuf.v1.TextSpanCharsOrBuilder> getCharacterSpanFieldBuilder() {
-            if (characterSpanBuilder_ == null) {
-                characterSpanBuilder_ = new com.google.protobuf.SingleFieldBuilderV3<datawave.annotation.protobuf.v1.TextSpanChars,datawave.annotation.protobuf.v1.TextSpanChars.Builder,datawave.annotation.protobuf.v1.TextSpanCharsOrBuilder>(
-                                getCharacterSpan(), getParentForChildren(), isClean());
-                characterSpan_ = null;
+        private com.google.protobuf.SingleFieldBuilderV3<datawave.annotation.protobuf.v1.TextSpanChars,datawave.annotation.protobuf.v1.TextSpanChars.Builder,datawave.annotation.protobuf.v1.TextSpanCharsOrBuilder> getTextSpanFieldBuilder() {
+            if (textSpanBuilder_ == null) {
+                textSpanBuilder_ = new com.google.protobuf.SingleFieldBuilderV3<datawave.annotation.protobuf.v1.TextSpanChars,datawave.annotation.protobuf.v1.TextSpanChars.Builder,datawave.annotation.protobuf.v1.TextSpanCharsOrBuilder>(
+                                getTextSpan(), getParentForChildren(), isClean());
+                textSpan_ = null;
             }
-            return characterSpanBuilder_;
+            return textSpanBuilder_;
         }
 
         private java.util.List<datawave.annotation.protobuf.v1.Point> points_ = java.util.Collections.emptyList();

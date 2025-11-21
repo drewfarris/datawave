@@ -40,30 +40,30 @@ public final class TextSpanChars extends com.google.protobuf.GeneratedMessageV3 
                                         datawave.annotation.protobuf.v1.TextSpanChars.Builder.class);
     }
 
-    public static final int STARTCHARACTER_FIELD_NUMBER = 1;
-    private long startCharacter_;
+    public static final int START_FIELD_NUMBER = 1;
+    private int start_;
 
     /**
-     * <code>int64 startCharacter = 1;</code>
+     * <code>int32 start = 1;</code>
      *
-     * @return The startCharacter.
+     * @return The start.
      */
     @java.lang.Override
-    public long getStartCharacter() {
-        return startCharacter_;
+    public int getStart() {
+        return start_;
     }
 
-    public static final int ENDCHARACTER_FIELD_NUMBER = 2;
-    private long endCharacter_;
+    public static final int END_FIELD_NUMBER = 2;
+    private int end_;
 
     /**
-     * <code>int64 endCharacter = 2;</code>
+     * <code>int32 end = 2;</code>
      *
-     * @return The endCharacter.
+     * @return The end.
      */
     @java.lang.Override
-    public long getEndCharacter() {
-        return endCharacter_;
+    public int getEnd() {
+        return end_;
     }
 
     private byte memoizedIsInitialized = -1;
@@ -82,11 +82,11 @@ public final class TextSpanChars extends com.google.protobuf.GeneratedMessageV3 
 
     @java.lang.Override
     public void writeTo(com.google.protobuf.CodedOutputStream output) throws java.io.IOException {
-        if (startCharacter_ != 0L) {
-            output.writeInt64(1, startCharacter_);
+        if (start_ != 0) {
+            output.writeInt32(1, start_);
         }
-        if (endCharacter_ != 0L) {
-            output.writeInt64(2, endCharacter_);
+        if (end_ != 0) {
+            output.writeInt32(2, end_);
         }
         getUnknownFields().writeTo(output);
     }
@@ -98,11 +98,11 @@ public final class TextSpanChars extends com.google.protobuf.GeneratedMessageV3 
             return size;
 
         size = 0;
-        if (startCharacter_ != 0L) {
-            size += com.google.protobuf.CodedOutputStream.computeInt64Size(1, startCharacter_);
+        if (start_ != 0) {
+            size += com.google.protobuf.CodedOutputStream.computeInt32Size(1, start_);
         }
-        if (endCharacter_ != 0L) {
-            size += com.google.protobuf.CodedOutputStream.computeInt64Size(2, endCharacter_);
+        if (end_ != 0) {
+            size += com.google.protobuf.CodedOutputStream.computeInt32Size(2, end_);
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -119,9 +119,9 @@ public final class TextSpanChars extends com.google.protobuf.GeneratedMessageV3 
         }
         datawave.annotation.protobuf.v1.TextSpanChars other = (datawave.annotation.protobuf.v1.TextSpanChars) obj;
 
-        if (getStartCharacter() != other.getStartCharacter())
+        if (getStart() != other.getStart())
             return false;
-        if (getEndCharacter() != other.getEndCharacter())
+        if (getEnd() != other.getEnd())
             return false;
         if (!getUnknownFields().equals(other.getUnknownFields()))
             return false;
@@ -135,10 +135,10 @@ public final class TextSpanChars extends com.google.protobuf.GeneratedMessageV3 
         }
         int hash = 41;
         hash = (19 * hash) + getDescriptor().hashCode();
-        hash = (37 * hash) + STARTCHARACTER_FIELD_NUMBER;
-        hash = (53 * hash) + com.google.protobuf.Internal.hashLong(getStartCharacter());
-        hash = (37 * hash) + ENDCHARACTER_FIELD_NUMBER;
-        hash = (53 * hash) + com.google.protobuf.Internal.hashLong(getEndCharacter());
+        hash = (37 * hash) + START_FIELD_NUMBER;
+        hash = (53 * hash) + getStart();
+        hash = (37 * hash) + END_FIELD_NUMBER;
+        hash = (53 * hash) + getEnd();
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
         return hash;
@@ -253,9 +253,9 @@ public final class TextSpanChars extends com.google.protobuf.GeneratedMessageV3 
         @java.lang.Override
         public Builder clear() {
             super.clear();
-            startCharacter_ = 0L;
+            start_ = 0;
 
-            endCharacter_ = 0L;
+            end_ = 0;
 
             return this;
         }
@@ -282,8 +282,8 @@ public final class TextSpanChars extends com.google.protobuf.GeneratedMessageV3 
         @java.lang.Override
         public datawave.annotation.protobuf.v1.TextSpanChars buildPartial() {
             datawave.annotation.protobuf.v1.TextSpanChars result = new datawave.annotation.protobuf.v1.TextSpanChars(this);
-            result.startCharacter_ = startCharacter_;
-            result.endCharacter_ = endCharacter_;
+            result.start_ = start_;
+            result.end_ = end_;
             onBuilt();
             return result;
         }
@@ -331,11 +331,11 @@ public final class TextSpanChars extends com.google.protobuf.GeneratedMessageV3 
         public Builder mergeFrom(datawave.annotation.protobuf.v1.TextSpanChars other) {
             if (other == datawave.annotation.protobuf.v1.TextSpanChars.getDefaultInstance())
                 return this;
-            if (other.getStartCharacter() != 0L) {
-                setStartCharacter(other.getStartCharacter());
+            if (other.getStart() != 0) {
+                setStart(other.getStart());
             }
-            if (other.getEndCharacter() != 0L) {
-                setEndCharacter(other.getEndCharacter());
+            if (other.getEnd() != 0) {
+                setEnd(other.getEnd());
             }
             this.mergeUnknownFields(other.getUnknownFields());
             onChanged();
@@ -362,12 +362,12 @@ public final class TextSpanChars extends com.google.protobuf.GeneratedMessageV3 
                             done = true;
                             break;
                         case 8: {
-                            startCharacter_ = input.readInt64();
+                            start_ = input.readInt32();
 
                             break;
                         } // case 8
                         case 16: {
-                            endCharacter_ = input.readInt64();
+                            end_ = input.readInt32();
 
                             break;
                         } // case 16
@@ -387,78 +387,78 @@ public final class TextSpanChars extends com.google.protobuf.GeneratedMessageV3 
             return this;
         }
 
-        private long startCharacter_;
+        private int start_;
 
         /**
-         * <code>int64 startCharacter = 1;</code>
+         * <code>int32 start = 1;</code>
          *
-         * @return The startCharacter.
+         * @return The start.
          */
         @java.lang.Override
-        public long getStartCharacter() {
-            return startCharacter_;
+        public int getStart() {
+            return start_;
         }
 
         /**
-         * <code>int64 startCharacter = 1;</code>
+         * <code>int32 start = 1;</code>
          *
          * @param value
-         *            The startCharacter to set.
+         *            The start to set.
          * @return This builder for chaining.
          */
-        public Builder setStartCharacter(long value) {
+        public Builder setStart(int value) {
 
-            startCharacter_ = value;
+            start_ = value;
             onChanged();
             return this;
         }
 
         /**
-         * <code>int64 startCharacter = 1;</code>
+         * <code>int32 start = 1;</code>
          *
          * @return This builder for chaining.
          */
-        public Builder clearStartCharacter() {
+        public Builder clearStart() {
 
-            startCharacter_ = 0L;
+            start_ = 0;
             onChanged();
             return this;
         }
 
-        private long endCharacter_;
+        private int end_;
 
         /**
-         * <code>int64 endCharacter = 2;</code>
+         * <code>int32 end = 2;</code>
          *
-         * @return The endCharacter.
+         * @return The end.
          */
         @java.lang.Override
-        public long getEndCharacter() {
-            return endCharacter_;
+        public int getEnd() {
+            return end_;
         }
 
         /**
-         * <code>int64 endCharacter = 2;</code>
+         * <code>int32 end = 2;</code>
          *
          * @param value
-         *            The endCharacter to set.
+         *            The end to set.
          * @return This builder for chaining.
          */
-        public Builder setEndCharacter(long value) {
+        public Builder setEnd(int value) {
 
-            endCharacter_ = value;
+            end_ = value;
             onChanged();
             return this;
         }
 
         /**
-         * <code>int64 endCharacter = 2;</code>
+         * <code>int32 end = 2;</code>
          *
          * @return This builder for chaining.
          */
-        public Builder clearEndCharacter() {
+        public Builder clearEnd() {
 
-            endCharacter_ = 0L;
+            end_ = 0;
             onChanged();
             return this;
         }

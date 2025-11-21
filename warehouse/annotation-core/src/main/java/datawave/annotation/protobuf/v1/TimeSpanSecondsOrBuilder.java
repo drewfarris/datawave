@@ -8,16 +8,16 @@ public interface TimeSpanSecondsOrBuilder extends
                 com.google.protobuf.MessageOrBuilder {
 
     /**
-     * <code>double startSeconds = 1;</code>
+     * <code>float start = 1;</code>
      *
-     * @return The startSeconds.
+     * @return The start.
      */
-    double getStartSeconds();
+    float getStart();
 
     /**
-     * <code>double endSeconds = 2;</code>
+     * <code>float end = 2;</code>
      *
-     * @return The endSeconds.
+     * @return The end.
      */
-    double getEndSeconds();
+    float getEnd();
 }

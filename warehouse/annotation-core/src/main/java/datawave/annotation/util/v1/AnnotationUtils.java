@@ -6,12 +6,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import java.util.function.Consumer;
 
+import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.google.common.hash.Funnel;
+import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
+import com.google.common.hash.PrimitiveSink;
 
 import datawave.annotation.protobuf.v1.Annotation;
 import datawave.annotation.protobuf.v1.AnnotationSource;
@@ -19,6 +24,8 @@ import datawave.annotation.protobuf.v1.Point;
 import datawave.annotation.protobuf.v1.Segment;
 import datawave.annotation.protobuf.v1.SegmentBoundary;
 import datawave.annotation.protobuf.v1.SegmentValue;
+import datawave.annotation.protobuf.v1.TextSpanChars;
+import datawave.annotation.protobuf.v1.TimeSpanSeconds;
 
 public class AnnotationUtils {
     protected static final Logger log = LoggerFactory.getLogger(AnnotationUtils.class);
@@ -29,7 +36,7 @@ public class AnnotationUtils {
 
     /** Enum for the SegmentBoundary types */
     public enum BoundaryCase {
-        TIME_SPAN, CHARACTER_SPAN, POINTS, ALL, BOUNDARY_NOT_SET
+        TIME_SPAN, TEXT_SPAN, POINTS, ALL, BOUNDARY_NOT_SET
     }
 
     /**
@@ -44,8 +51,8 @@ public class AnnotationUtils {
             return BoundaryCase.ALL;
         } else if (boundary.hasTimeSpan()) {
             return BoundaryCase.TIME_SPAN;
-        } else if (boundary.hasCharacterSpan()) {
-            return BoundaryCase.CHARACTER_SPAN;
+        } else if (boundary.hasTextSpan()) {
+            return BoundaryCase.TEXT_SPAN;
         } else if (!boundary.getPointsList().isEmpty()) {
             return BoundaryCase.POINTS;
         } else {
@@ -87,8 +94,8 @@ public class AnnotationUtils {
                 return "POINTS";
             case TIME_SPAN:
                 return "TIME_SPAN";
-            case CHARACTER_SPAN:
-                return "CHARACTER_SPAN";
+            case TEXT_SPAN:
+                return "TEXT_SPAN";
             case BOUNDARY_NOT_SET:
             default:
                 return "";
@@ -148,17 +155,18 @@ public class AnnotationUtils {
     }
 
     /**
-     * Utility method to generate and inject the annotation source identifier into the annotation source. included in the serialized result and supports
+     * Utility method to generate and inject the annotation source hashes into the annotation source. Included in the serialized result and supports
      * deserialization. The identifier is a hash of certain values in the annotation source. This should generally be called by and data access object just
-     * prior to writing the annotation.
+     * prior to writing the annotation. It generates both the long analytic source hash used for identification and the short analytic hash used for grouping.
      *
      * @param annotationSource
      *            the annotation to inject.
      * @return the annotation with boundary type injected.
      */
-    public static AnnotationSource injectAnnotationSourceId(AnnotationSource annotationSource) {
-        final String hash = calculateAnnotationSourceHash(annotationSource);
-        return annotationSource.toBuilder().setAnalyticHash(hash).build();
+    public static AnnotationSource injectAnnotationSourceHashes(AnnotationSource annotationSource) {
+        final String analyticSourceHash = calculateSourceAnalyticSourceHash(annotationSource);
+        final String analyticHash = calculateSourceAnalyticHash(annotationSource);
+        return annotationSource.toBuilder().setAnalyticSourceHash(analyticSourceHash).setAnalyticHash(analyticHash).build();
     }
 
     /**
@@ -184,36 +192,58 @@ public class AnnotationUtils {
      */
     public static Segment injectSegmentId(Segment segment) {
         final String hash = calculateSegmentHash(segment);
-        return segment.toBuilder().setSegmentId(hash).build();
+        return segment.toBuilder().setSegmentHash(hash).build();
     }
 
     /**
-     * Calculate the 32-bit murmur3 hash used to identify an annotation source, this includes the following attributes:
-     * <ul>
-     * <li>the annotation source engine</li>
-     * <li>the annotation source model</li>
-     * <li>the annotation source label</li>
-     * <li>the annotation source configuration</li>
-     * </ul>
+     * Calculate the 32-bit murmur3 hash used to group by annotation source, see {@link #calculateSourceHash(HashFunction, AnnotationSource)} for the fields
+     * used in the hash.
      *
      * @param annotationSource
      *            the annotation to hash.
-     * @return the calculated hash. TODO: validate that this is the right algorithm for hashing the segment.
+     * @return the calculated hash.
+     */
+    public static String calculateSourceAnalyticHash(AnnotationSource annotationSource) {
+        return calculateSourceHash(Hashing.murmur3_32_fixed(), annotationSource);
+    }
+
+    /**
+     * Calculate the 128-bit murmur3 hash used to index an annotation source, see {@link #calculateSourceHash(HashFunction, AnnotationSource)} for the fields
+     * used in the hash.
+     *
+     * @param annotationSource
+     *            the annotation to hash.
+     * @return the calculated hash.
+     */
+    public static String calculateSourceAnalyticSourceHash(AnnotationSource annotationSource) {
+        return calculateSourceHash(Hashing.murmur3_128(), annotationSource);
+    }
+
+    /**
+     * Calculate a hash on an annotation source using the provided hash function. This method includes the following information in the hash:
+     * <ul>
+     * <li>the annotation source engine</li>
+     * <li>the annotation source model</li>
+     * <li>the annotation source configuration</li>
+     * </ul>
+     *
+     * @param hashFunction
+     *            the hash function to use in hash calculation
+     * @param annotationSource
+     *            the annotation source we're hashing
+     * @return the hash of the annotation source.
      */
     @SuppressWarnings("UnstableApiUsage")
-    public static String calculateAnnotationSourceHash(AnnotationSource annotationSource) {
-        Hasher hasher = Hashing.murmur3_32_fixed().newHasher();
-        hasher.putString(annotationSource.getEngine(), StandardCharsets.UTF_8);
-        hasher.putString(annotationSource.getModel(), StandardCharsets.UTF_8);
-        hasher.putString(annotationSource.getSourceLabel(), StandardCharsets.UTF_8);
-        // maps must be hashed in a consistent order (by key)
-        final Map<String,String> configMap = annotationSource.getConfigurationMap();
-        final SortedSet<String> sortedKeySet = new TreeSet<>(configMap.keySet());
-        for (String key : sortedKeySet) {
-            hasher.putString(key, StandardCharsets.UTF_8);
-            hasher.putString(configMap.get(key), StandardCharsets.UTF_8);
-        }
-        return hasher.hash().toString();
+    public static String calculateSourceHash(HashFunction hashFunction, AnnotationSource annotationSource) {
+        //@formatter:off
+        return hashFunction.newHasher()
+                .putUnencodedChars(annotationSource.getEngine())
+                .putUnencodedChars(annotationSource.getModel())
+                .putObject(annotationSource.getConfigurationMap(), stringMapFunnel)
+                .hash()
+                .toString()
+                .toUpperCase();
+        //@formatter:on
     }
 
     /**
@@ -226,7 +256,7 @@ public class AnnotationUtils {
      *
      * @param annotation
      *            the annotation to hash.
-     * @return the calculated hash. TODO: validate that this is the right algorithm for hashing the segment.
+     * @return the calculated hash.
      */
     @SuppressWarnings("UnstableApiUsage")
     public static String calculateAnnotationHash(Annotation annotation) {
@@ -260,6 +290,36 @@ public class AnnotationUtils {
     @SuppressWarnings("UnstableApiUsage")
     public static String calculateSegmentHash(Segment segment) {
         Hasher hasher = Hashing.murmur3_32_fixed().newHasher();
+        final SegmentBoundary boundary = segment.getBoundary();
+        final BoundaryCase boundaryCase = getBoundaryCase(boundary);
+        switch (boundaryCase) {
+            case ALL:
+                hasher.putUnencodedChars("ALL");
+                break;
+            case POINTS:
+                hasher.putUnencodedChars("POINTS").putObject(boundary.getPointsList(), pointListFunnel);
+                break;
+            case TIME_SPAN:
+                final TimeSpanSeconds timeSpan = boundary.getTimeSpan();
+                hasher.putUnencodedChars("TIME_SPAN").putFloat(timeSpan.getStart()).putFloat(timeSpan.getEnd());
+                break;
+            case TEXT_SPAN:
+                final TextSpanChars textSpan = boundary.getTextSpan();
+                hasher.putUnencodedChars("TEXT_SPAN").putInt(textSpan.getStart()).putInt(textSpan.getEnd());
+                break;
+        }
+        return hasher.hash().toString();
+    }
+
+    @SuppressWarnings("UnstableApiUsage")
+    public static String calculateSegmentValueHash(SegmentValue v) {
+        return Hashing.murmur3_32_fixed().newHasher().putUnencodedChars(v.getValue()).hash().toString().toUpperCase();
+    }
+
+    @SuppressWarnings("UnstableApiUsage")
+    public static void foo(Segment segment) {
+        Hasher hasher = Hashing.murmur3_32_fixed().newHasher();
+
         for (SegmentValue v : segment.getValuesList()) {
             hasher.putString(v.getValue(), StandardCharsets.UTF_8);
             hasher.putDouble(v.getScore());
@@ -273,28 +333,7 @@ public class AnnotationUtils {
                 }
             }
         }
-        final SegmentBoundary boundary = segment.getBoundary();
-        final BoundaryCase boundaryCase = getBoundaryCase(boundary);
-        switch (boundaryCase) {
-            case ALL:
-                hasher.putString("All", StandardCharsets.UTF_8);
-                break;
-            case POINTS:
-                for (Point p : boundary.getPointsList()) {
-                    hasher.putDouble(p.getX());
-                    hasher.putDouble(p.getY());
-                    hasher.putString(p.getLabel(), StandardCharsets.UTF_8);
-                }
-                break;
-            case TIME_SPAN:
-                hasher.putDouble(boundary.getTimeSpan().getStartSeconds());
-                hasher.putDouble(boundary.getTimeSpan().getEndSeconds());
-                break;
-            case CHARACTER_SPAN:
-                hasher.putLong(boundary.getCharacterSpan().getStartCharacter());
-                hasher.putLong(boundary.getCharacterSpan().getEndCharacter());
-                break;
-        }
+
         // maps must be hashed in a consistent order (by key)
         final Map<String,String> metadataMap = segment.getMetadataMap();
         final SortedSet<String> sortedKeySet = new TreeSet<>(metadataMap.keySet());
@@ -302,6 +341,40 @@ public class AnnotationUtils {
             hasher.putString(key, StandardCharsets.UTF_8);
             hasher.putString(metadataMap.get(key), StandardCharsets.UTF_8);
         }
-        return hasher.hash().toString();
     }
+
+    /**
+     * Used to generate hashes for maps of strings via the {@code putObject(object, Funnel)} method.
+     *
+     */
+    @SuppressWarnings("UnstableApiUsage")
+    private static final Funnel<Map<String,String>> stringMapFunnel = (map, sink) -> {
+        if (map != null) {
+            map.entrySet().stream().sorted(Map.Entry.comparingByKey()).forEach(entry -> {
+                sink.putUnencodedChars(entry.getKey());
+                sink.putUnencodedChars(entry.getValue());
+            });
+        }
+    };
+
+    /**
+     * Used to generate hashes for lists of points via the {@code putObject(object, Funnel)} method. This sends Point fields into a hasher in the following
+     * order:
+     * <ul>
+     * <li>x</li>
+     * <li>y</li>
+     * <li>label</li>
+     * </ul>
+     * If the label is null, an empty string is hashed.
+     */
+    @SuppressWarnings("UnstableApiUsage")
+    public static final Funnel<List<Point>> pointListFunnel = (pointsList, sink) -> {
+        if (pointsList != null) {
+            pointsList.forEach(point -> {
+                sink.putInt(point.getX());
+                sink.putInt(point.getY());
+                sink.putUnencodedChars(StringUtils.defaultString(point.getLabel()));
+            });
+        }
+    };
 }

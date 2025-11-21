@@ -9,7 +9,7 @@ public interface SegmentBoundaryOrBuilder extends
 
     /**
      * <pre>
-     * currently 'all', 'points', 'times', 'characters', should match the name of the field where data is stored.
+     * currently 'all', 'points', 'time_span', 'text_span'.
      * </pre>
      *
      * <code>string boundaryType = 1;</code>
@@ -20,7 +20,7 @@ public interface SegmentBoundaryOrBuilder extends
 
     /**
      * <pre>
-     * currently 'all', 'points', 'times', 'characters', should match the name of the field where data is stored.
+     * currently 'all', 'points', 'time_span', 'text_span'.
      * </pre>
      *
      * <code>string boundaryType = 1;</code>
@@ -96,31 +96,31 @@ public interface SegmentBoundaryOrBuilder extends
      * a start and end character.
      * </pre>
      *
-     * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+     * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
      *
-     * @return Whether the characterSpan field is set.
+     * @return Whether the textSpan field is set.
      */
-    boolean hasCharacterSpan();
+    boolean hasTextSpan();
 
     /**
      * <pre>
      * a start and end character.
      * </pre>
      *
-     * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+     * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
      *
-     * @return The characterSpan.
+     * @return The textSpan.
      */
-    datawave.annotation.protobuf.v1.TextSpanChars getCharacterSpan();
+    datawave.annotation.protobuf.v1.TextSpanChars getTextSpan();
 
     /**
      * <pre>
      * a start and end character.
      * </pre>
      *
-     * <code>.datawave.annotation.protobuf.v1.TextSpanChars characterSpan = 22;</code>
+     * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
      */
-    datawave.annotation.protobuf.v1.TextSpanCharsOrBuilder getCharacterSpanOrBuilder();
+    datawave.annotation.protobuf.v1.TextSpanCharsOrBuilder getTextSpanOrBuilder();
 
     /**
      * <pre>

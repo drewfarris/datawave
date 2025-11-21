@@ -8,16 +8,16 @@ public interface TextSpanCharsOrBuilder extends
                 com.google.protobuf.MessageOrBuilder {
 
     /**
-     * <code>int64 startCharacter = 1;</code>
+     * <code>int32 start = 1;</code>
      *
-     * @return The startCharacter.
+     * @return The start.
      */
-    long getStartCharacter();
+    int getStart();
 
     /**
-     * <code>int64 endCharacter = 2;</code>
+     * <code>int32 end = 2;</code>
      *
-     * @return The endCharacter.
+     * @return The end.
      */
-    long getEndCharacter();
+    int getEnd();
 }
