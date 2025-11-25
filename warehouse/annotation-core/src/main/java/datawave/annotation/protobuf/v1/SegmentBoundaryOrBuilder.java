@@ -4,166 +4,107 @@
 package datawave.annotation.protobuf.v1;
 
 public interface SegmentBoundaryOrBuilder extends
-                // @@protoc_insertion_point(interface_extends:datawave.annotation.protobuf.v1.SegmentBoundary)
-                com.google.protobuf.MessageOrBuilder {
+    // @@protoc_insertion_point(interface_extends:datawave.annotation.protobuf.v1.SegmentBoundary)
+    com.google.protobuf.MessageOrBuilder {
 
-    /**
-     * <pre>
-     * currently 'all', 'points', 'time_span', 'text_span'.
-     * </pre>
-     *
-     * <code>string boundaryType = 1;</code>
-     *
-     * @return The boundaryType.
-     */
-    java.lang.String getBoundaryType();
+  /**
+   * <pre>
+   * currently 'ALL', 'POINTS', 'TIME_MILLI', 'TEXT_CHAR'.
+   * </pre>
+   *
+   * <code>.datawave.annotation.protobuf.v1.BoundaryType boundaryType = 1;</code>
+   * @return The enum numeric value on the wire for boundaryType.
+   */
+  int getBoundaryTypeValue();
+  /**
+   * <pre>
+   * currently 'ALL', 'POINTS', 'TIME_MILLI', 'TEXT_CHAR'.
+   * </pre>
+   *
+   * <code>.datawave.annotation.protobuf.v1.BoundaryType boundaryType = 1;</code>
+   * @return The boundaryType.
+   */
+  datawave.annotation.protobuf.v1.BoundaryType getBoundaryType();
 
-    /**
-     * <pre>
-     * currently 'all', 'points', 'time_span', 'text_span'.
-     * </pre>
-     *
-     * <code>string boundaryType = 1;</code>
-     *
-     * @return The bytes for boundaryType.
-     */
-    com.google.protobuf.ByteString getBoundaryTypeBytes();
+  /**
+   * <pre>
+   * an start boundary for spans, the unit is implied by the boundaryType (used for TIME and TEXT spans).
+   * </pre>
+   *
+   * <code>int32 start = 21;</code>
+   * @return Whether the start field is set.
+   */
+  boolean hasStart();
+  /**
+   * <pre>
+   * an start boundary for spans, the unit is implied by the boundaryType (used for TIME and TEXT spans).
+   * </pre>
+   *
+   * <code>int32 start = 21;</code>
+   * @return The start.
+   */
+  int getStart();
 
-    /**
-     * <pre>
-     * the entire object.
-     * </pre>
-     *
-     * <code>.datawave.annotation.protobuf.v1.All all = 20;</code>
-     *
-     * @return Whether the all field is set.
-     */
-    boolean hasAll();
+  /**
+   * <pre>
+   * an end boundary for spans, the unit is implied by the boundaryType (used for TIME and TEXT spans).
+   * </pre>
+   *
+   * <code>int32 end = 22;</code>
+   * @return Whether the end field is set.
+   */
+  boolean hasEnd();
+  /**
+   * <pre>
+   * an end boundary for spans, the unit is implied by the boundaryType (used for TIME and TEXT spans).
+   * </pre>
+   *
+   * <code>int32 end = 22;</code>
+   * @return The end.
+   */
+  int getEnd();
 
-    /**
-     * <pre>
-     * the entire object.
-     * </pre>
-     *
-     * <code>.datawave.annotation.protobuf.v1.All all = 20;</code>
-     *
-     * @return The all.
-     */
-    datawave.annotation.protobuf.v1.All getAll();
-
-    /**
-     * <pre>
-     * the entire object.
-     * </pre>
-     *
-     * <code>.datawave.annotation.protobuf.v1.All all = 20;</code>
-     */
-    datawave.annotation.protobuf.v1.AllOrBuilder getAllOrBuilder();
-
-    /**
-     * <pre>
-     * a start and end time span.
-     * </pre>
-     *
-     * <code>.datawave.annotation.protobuf.v1.TimeSpanSeconds timeSpan = 21;</code>
-     *
-     * @return Whether the timeSpan field is set.
-     */
-    boolean hasTimeSpan();
-
-    /**
-     * <pre>
-     * a start and end time span.
-     * </pre>
-     *
-     * <code>.datawave.annotation.protobuf.v1.TimeSpanSeconds timeSpan = 21;</code>
-     *
-     * @return The timeSpan.
-     */
-    datawave.annotation.protobuf.v1.TimeSpanSeconds getTimeSpan();
-
-    /**
-     * <pre>
-     * a start and end time span.
-     * </pre>
-     *
-     * <code>.datawave.annotation.protobuf.v1.TimeSpanSeconds timeSpan = 21;</code>
-     */
-    datawave.annotation.protobuf.v1.TimeSpanSecondsOrBuilder getTimeSpanOrBuilder();
-
-    /**
-     * <pre>
-     * a start and end character.
-     * </pre>
-     *
-     * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
-     *
-     * @return Whether the textSpan field is set.
-     */
-    boolean hasTextSpan();
-
-    /**
-     * <pre>
-     * a start and end character.
-     * </pre>
-     *
-     * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
-     *
-     * @return The textSpan.
-     */
-    datawave.annotation.protobuf.v1.TextSpanChars getTextSpan();
-
-    /**
-     * <pre>
-     * a start and end character.
-     * </pre>
-     *
-     * <code>.datawave.annotation.protobuf.v1.TextSpanChars textSpan = 22;</code>
-     */
-    datawave.annotation.protobuf.v1.TextSpanCharsOrBuilder getTextSpanOrBuilder();
-
-    /**
-     * <pre>
-     * zero or more points or polygons.
-     * </pre>
-     *
-     * <code>repeated .datawave.annotation.protobuf.v1.Point points = 23;</code>
-     */
-    java.util.List<datawave.annotation.protobuf.v1.Point> getPointsList();
-
-    /**
-     * <pre>
-     * zero or more points or polygons.
-     * </pre>
-     *
-     * <code>repeated .datawave.annotation.protobuf.v1.Point points = 23;</code>
-     */
-    datawave.annotation.protobuf.v1.Point getPoints(int index);
-
-    /**
-     * <pre>
-     * zero or more points or polygons.
-     * </pre>
-     *
-     * <code>repeated .datawave.annotation.protobuf.v1.Point points = 23;</code>
-     */
-    int getPointsCount();
-
-    /**
-     * <pre>
-     * zero or more points or polygons.
-     * </pre>
-     *
-     * <code>repeated .datawave.annotation.protobuf.v1.Point points = 23;</code>
-     */
-    java.util.List<? extends datawave.annotation.protobuf.v1.PointOrBuilder> getPointsOrBuilderList();
-
-    /**
-     * <pre>
-     * zero or more points or polygons.
-     * </pre>
-     *
-     * <code>repeated .datawave.annotation.protobuf.v1.Point points = 23;</code>
-     */
-    datawave.annotation.protobuf.v1.PointOrBuilder getPointsOrBuilder(int index);
+  /**
+   * <pre>
+   * zero or more points or polygons.
+   * </pre>
+   *
+   * <code>repeated .datawave.annotation.protobuf.v1.Point points = 23;</code>
+   */
+  java.util.List<datawave.annotation.protobuf.v1.Point> 
+      getPointsList();
+  /**
+   * <pre>
+   * zero or more points or polygons.
+   * </pre>
+   *
+   * <code>repeated .datawave.annotation.protobuf.v1.Point points = 23;</code>
+   */
+  datawave.annotation.protobuf.v1.Point getPoints(int index);
+  /**
+   * <pre>
+   * zero or more points or polygons.
+   * </pre>
+   *
+   * <code>repeated .datawave.annotation.protobuf.v1.Point points = 23;</code>
+   */
+  int getPointsCount();
+  /**
+   * <pre>
+   * zero or more points or polygons.
+   * </pre>
+   *
+   * <code>repeated .datawave.annotation.protobuf.v1.Point points = 23;</code>
+   */
+  java.util.List<? extends datawave.annotation.protobuf.v1.PointOrBuilder> 
+      getPointsOrBuilderList();
+  /**
+   * <pre>
+   * zero or more points or polygons.
+   * </pre>
+   *
+   * <code>repeated .datawave.annotation.protobuf.v1.Point points = 23;</code>
+   */
+  datawave.annotation.protobuf.v1.PointOrBuilder getPointsOrBuilder(
+      int index);
 }

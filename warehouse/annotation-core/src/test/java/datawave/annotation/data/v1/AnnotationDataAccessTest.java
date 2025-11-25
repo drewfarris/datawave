@@ -45,7 +45,6 @@ import datawave.annotation.protobuf.v1.AnnotationSource;
 import datawave.annotation.protobuf.v1.Segment;
 import datawave.annotation.protobuf.v1.SegmentBoundary;
 import datawave.annotation.protobuf.v1.SegmentValue;
-import datawave.annotation.protobuf.v1.TextSpanChars;
 import datawave.annotation.test.v1.AnnotationTestDataUtil;
 import datawave.annotation.util.v1.AnnotationUtils;
 import datawave.data.hash.HashUID;
@@ -357,21 +356,18 @@ public class AnnotationDataAccessTest {
         List<String> errorMessages = new ArrayList<>();
 
         for (Segment segment : segments) {
-            // TODO: test extensions
             SegmentValue expectedValue = SegmentValue.newBuilder().setValue(expectedWords[pos]).setScore(1.0f).build();
-            TextSpanChars expectedSpan = TextSpanChars.newBuilder().setStart(expectedStarts[pos]).setEnd(expectedStarts[pos] + expectedWords[pos].length())
-                            .build();
+            SegmentBoundary expectedBoundary = SegmentBoundary.newBuilder().setStart(expectedStarts[pos]).setEnd(expectedStarts[pos] + expectedWords[pos].length()).build();
             pos++;
 
             List<SegmentValue> observedValues = segment.getValuesList();
             assertFalse(observedValues.isEmpty());
             assertEquals(1, observedValues.size());
             SegmentValue observedValue = observedValues.get(0);
-            SegmentBoundary bounds = segment.getBoundary();
-            TextSpanChars observedSpan = bounds.getTextSpan();
+            SegmentBoundary observedBounds = segment.getBoundary();
 
             // we want to see all errors, so don't stop on the first failure.
-            evaluateTextSegmentMatch(errorMessages, expectedValue, expectedSpan, observedValue, observedSpan);
+            evaluateTextSegmentMatch(errorMessages, expectedValue, expectedBoundary, observedValue, observedBounds);
         }
 
         assertEquals("[]", errorMessages.toString());
@@ -392,8 +388,8 @@ public class AnnotationDataAccessTest {
      * @param observedBoundary
      *            the boundary to check.
      */
-    public static void evaluateTextSegmentMatch(List<String> errorMessages, SegmentValue expectedValue, TextSpanChars expectedBoundary,
-                    SegmentValue observedValue, TextSpanChars observedBoundary) {
+    public static void evaluateTextSegmentMatch(List<String> errorMessages, SegmentValue expectedValue, SegmentBoundary expectedBoundary,
+                    SegmentValue observedValue, SegmentBoundary observedBoundary) {
         String expectedWord = expectedValue.getValue();
         long expectedStart = expectedBoundary.getStart();
 

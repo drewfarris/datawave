@@ -1,6 +1,5 @@
 package datawave.annotation.test.v1;
 
-import static datawave.annotation.util.v1.AnnotationUtils.getBoundaryCase;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -16,6 +15,7 @@ import java.util.stream.Collectors;
 
 import datawave.annotation.protobuf.v1.Annotation;
 import datawave.annotation.protobuf.v1.AnnotationSource;
+import datawave.annotation.protobuf.v1.BoundaryType;
 import datawave.annotation.protobuf.v1.Segment;
 import datawave.annotation.protobuf.v1.SegmentBoundary;
 import datawave.annotation.protobuf.v1.SegmentValue;
@@ -149,18 +149,15 @@ public class AnnotationAssertions {
 
         }
 
-        if (!getBoundaryCase(expected).equals(getBoundaryCase(result))) {
-            errorMessages.add("Mismatched boundary case: expected " + getBoundaryCase(expected) + " result: " + getBoundaryCase(result));
+        if (expected.getBoundaryType().equals(result.getBoundaryType())) {
+            errorMessages.add("Mismatched boundary case: expected " + expected.getBoundaryType() + " result: " + result.getBoundaryType());
         } else {
-            switch (getBoundaryCase(expected)) {
-                case TIME_SPAN:
-                    if (!expected.getTimeSpan().equals(result.getTimeSpan())) {
-                        errorMessages.add("Mismatched time boundary: expected " + expected.getTimeSpan() + " result: " + result.getTimeSpan());
-                    }
-                    break;
-                case TEXT_SPAN:
-                    if (!expected.getTextSpan().equals(result.getTextSpan())) {
-                        errorMessages.add("Mismatched text boundary: expected " + expected.getTextSpan() + " result: " + result.getTextSpan());
+            BoundaryType boundaryType = result.getBoundaryType();
+            switch (boundaryType) {
+                case TIME_MILLI:
+                case TEXT_CHAR:
+                    if ((expected.getStart() != result.getStart()) || (expected.getEnd() != result.getEnd())) {
+                        errorMessages.add("Mismatched " + boundaryType + " boundary: expected [" + expected.getStart() + "-" + expected.getEnd() + "], result [" + result.getStart() + "-" + result.getEnd() + "]");
                     }
                     break;
                 case POINTS:
@@ -169,11 +166,11 @@ public class AnnotationAssertions {
                     }
                     break;
                 case ALL:
-                case BOUNDARY_NOT_SET:
+                case UNKNOWN:
                     // no error, safe to ignore.
                     break;
                 default:
-                    throw new IllegalArgumentException("Encountered unexpected boundary case: " + getBoundaryCase(expected));
+                    throw new IllegalArgumentException("Encountered unexpected boundary case: " + boundaryType);
             }
         }
     }

@@ -22,82 +22,12 @@ import datawave.annotation.protobuf.v1.Point;
 import datawave.annotation.protobuf.v1.Segment;
 import datawave.annotation.protobuf.v1.SegmentBoundary;
 import datawave.annotation.protobuf.v1.SegmentValue;
-import datawave.annotation.protobuf.v1.TextSpanChars;
-import datawave.annotation.protobuf.v1.TimeSpanSeconds;
 
 public class AnnotationUtils {
     protected static final Logger log = LoggerFactory.getLogger(AnnotationUtils.class);
 
     public static Annotation injectAnnotationSource(Annotation a, AnnotationSource as) {
         return a.toBuilder().clearSource().setSource(as).clearAnalyticSourceHash().setAnalyticSourceHash(as.getAnalyticSourceHash()).build();
-    }
-
-    /** Enum for the SegmentBoundary types */
-    public enum BoundaryCase {
-        TIME_SPAN, TEXT_SPAN, POINTS, ALL, BOUNDARY_NOT_SET
-    }
-
-    /**
-     * Decode the SegmentBoundary type into an enum value for streamlined handling later
-     *
-     * @param boundary
-     *            the boundary to inspect
-     * @return the BoundaryCase for this boundary.
-     */
-    public static BoundaryCase getBoundaryCase(SegmentBoundary boundary) {
-        if (boundary.hasAll()) {
-            return BoundaryCase.ALL;
-        } else if (boundary.hasTimeSpan()) {
-            return BoundaryCase.TIME_SPAN;
-        } else if (boundary.hasTextSpan()) {
-            return BoundaryCase.TEXT_SPAN;
-        } else if (!boundary.getPointsList().isEmpty()) {
-            return BoundaryCase.POINTS;
-        } else {
-            return BoundaryCase.BOUNDARY_NOT_SET;
-        }
-    }
-
-    /**
-     * Add the segment boundary types to the specified annotation
-     *
-     * @param a
-     *            the annotation to enrich
-     * @return the enriched version of the annotation, or the same annotation of the segment list is empty.
-     */
-    public static Annotation injectSegmentBoundaryTypes(Annotation a) {
-        if (a.getSegmentsList().isEmpty()) {
-            return a;
-        }
-        Annotation.Builder b = a.toBuilder().clearSegments();
-        for (Segment s : a.getSegmentsList()) {
-            b.addSegments(injectBoundaryType(s));
-        }
-        return b.build();
-    }
-
-    /**
-     * Given a segment boundary case, return the string describing that boundary
-     *
-     * @param boundary
-     *            the boundary
-     * @return a string describing the boundary case.
-     */
-    public static String getBoundaryTypeString(SegmentBoundary boundary) {
-        BoundaryCase boundaryCase = getBoundaryCase(boundary);
-        switch (boundaryCase) {
-            case ALL:
-                return "ENTIRE";
-            case POINTS:
-                return "POINTS";
-            case TIME_SPAN:
-                return "TIME_SPAN";
-            case TEXT_SPAN:
-                return "TEXT_SPAN";
-            case BOUNDARY_NOT_SET:
-            default:
-                return "";
-        }
     }
 
     /**
@@ -119,37 +49,6 @@ public class AnnotationUtils {
 
         // finally, generate the annotation id for the updated annotation
         return AnnotationUtils.injectAnnotationId(updatedAnnotation);
-    }
-
-    /**
-     * Utility method to inject the boundary type field into the segment so that it will be included in the serialized result and support deserialization. This
-     * should generally be called by and data access object just prior to writing the segment, but before injecting an identifier.
-     *
-     * @param segment
-     *            the segment to inject.
-     * @return the segment with the text boundary type injected.
-     */
-    public static Segment injectBoundaryType(Segment segment) {
-        if (segment.hasBoundary()) {
-            SegmentBoundary boundary = injectBoundaryType(segment.getBoundary());
-            return segment.toBuilder().setBoundary(boundary).build();
-        } else {
-            // technically invalid, but validation logic belongs elsewhere.
-            return segment;
-        }
-    }
-
-    /**
-     * Utility method to inject the boundary type field into the boundary so that it will be included in the serialized result and support deserialization. This
-     * should generally be called by and data access object just prior to writing the segment, but before injecting an identifier.
-     *
-     * @param boundary
-     *            the boundary to inject.
-     * @return the boundary with the text boundary type injected.
-     */
-    public static SegmentBoundary injectBoundaryType(SegmentBoundary boundary) {
-        String type = getBoundaryTypeString(boundary);
-        return boundary.toBuilder().setBoundaryType(type).build();
     }
 
     /**
@@ -289,21 +188,18 @@ public class AnnotationUtils {
     public static String calculateSegmentHash(Segment segment) {
         Hasher hasher = Hashing.murmur3_32_fixed().newHasher();
         final SegmentBoundary boundary = segment.getBoundary();
-        final BoundaryCase boundaryCase = getBoundaryCase(boundary);
-        switch (boundaryCase) {
+        switch (boundary.getBoundaryType()) {
             case ALL:
                 hasher.putUnencodedChars("ALL");
                 break;
             case POINTS:
                 hasher.putUnencodedChars("POINTS").putObject(boundary.getPointsList(), pointListFunnel);
                 break;
-            case TIME_SPAN:
-                final TimeSpanSeconds timeSpan = boundary.getTimeSpan();
-                hasher.putUnencodedChars("TIME_SPAN").putFloat(timeSpan.getStart()).putFloat(timeSpan.getEnd());
+            case TIME_MILLI:
+                hasher.putUnencodedChars("TIME_MILLI").putInt(boundary.getStart()).putInt(boundary.getEnd());
                 break;
-            case TEXT_SPAN:
-                final TextSpanChars textSpan = boundary.getTextSpan();
-                hasher.putUnencodedChars("TEXT_SPAN").putInt(textSpan.getStart()).putInt(textSpan.getEnd());
+            case TEXT_CHAR:
+                hasher.putUnencodedChars("TEXT_CHAR").putInt(boundary.getStart()).putInt(boundary.getEnd());
                 break;
         }
         return hasher.hash().toString();

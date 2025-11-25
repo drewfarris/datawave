@@ -5,11 +5,15 @@ package datawave.annotation.protobuf.v1;
 option java_package = "datawave.annotation.protobuf.v1";
 option java_multiple_files = true;
 
-// segment boundary types
-message All { } // annotations on the entire object
+enum BoundaryType {
+  UNKNOWN = 0;
+  ALL = 1;
+  POINTS = 2;
+  TIME_MILLI = 3;
+  TEXT_CHAR = 4;
+}
+
 message Point { int32 x = 1; int32 y = 2; string label = 3; } // annotations on a point
-message TimeSpanSeconds { float start = 1; float end = 2; } // annotations on a span of time
-message TextSpanChars { int32 start = 1; int32 end = 2; } // annotations on a span of characters
 
 // segment value, e.g. a label, confidence and source
 message SegmentValue {
@@ -20,11 +24,10 @@ message SegmentValue {
 }
 
 message SegmentBoundary {
-    string boundaryType = 1; // currently 'all', 'points', 'time_span', 'text_span'.
+    BoundaryType boundaryType = 1; // currently 'ALL', 'POINTS', 'TIME_MILLI', 'TEXT_CHAR'.
     reserved 2 to 19; // for future growth.
-    optional All all = 20; // the entire object.
-    optional TimeSpanSeconds timeSpan = 21; // a start and end time span.
-    optional TextSpanChars textSpan = 22; // a start and end character.
+    optional int32 start = 21; // an start boundary for spans, the unit is implied by the boundaryType (used for TIME and TEXT spans).
+    optional int32 end = 22; // an end boundary for spans, the unit is implied by the boundaryType (used for TIME and TEXT spans).
     repeated Point points = 23; // zero or more points or polygons.
     reserved 24 to 50; // add future segment types here.
 }

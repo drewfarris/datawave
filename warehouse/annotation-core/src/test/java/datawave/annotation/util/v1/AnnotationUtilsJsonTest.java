@@ -22,7 +22,7 @@ public class AnnotationUtilsJsonTest {
             "  \"segments\": [{\n" +
             "    \"segmentId\": \"fa389252\",\n" +
             "    \"boundary\": {\n" +
-            "      \"boundaryType\": \"TIME_SPAN\",\n" +
+            "      \"boundaryType\": \"TIME_MILLI\",\n" +
             "      \"timeSpan\": {\n" +
             "        \"startSeconds\": 0.154,\n" +
             "        \"endSeconds\": 0.52\n" +
@@ -51,7 +51,7 @@ public class AnnotationUtilsJsonTest {
     @Test
     public void testToJson() throws Exception {
         Annotation a = AnnotationTestDataUtil.generateTestAnnotation();
-        String json = AnnotationJsonUtils.annotationToJsonWithBoundaryTypesAndIds(a);
+        String json = AnnotationJsonUtils.annotationToJsonWithIds(a);
         log.info(json);
     }
 
