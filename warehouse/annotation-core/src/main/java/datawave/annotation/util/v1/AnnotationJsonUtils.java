@@ -50,7 +50,7 @@ public class AnnotationJsonUtils {
      *             if there's a problem with serialization.
      */
     public static String annotationToJsonWithIds(Annotation a) throws InvalidProtocolBufferException {
-        return PRINTER.print(AnnotationUtils.injectAnnotationAndSegmentIds(a));
+        return PRINTER.print(AnnotationUtils.injectAllHashes(a));
     }
 
     /**
@@ -70,6 +70,7 @@ public class AnnotationJsonUtils {
 
     /**
      * Convert the segment to json.
+     *
      * @param s
      *            the segment to convert
      * @return json representing the segment.

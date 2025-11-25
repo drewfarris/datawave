@@ -25,7 +25,7 @@ public class AnnotationValidators {
             .addCheck(a -> StringUtils.isNotBlank(a.getDataType()), "Annotation datatype must not be blank")
             .addCheck(a -> StringUtils.isNotBlank(a.getUid()), "Annotation uid must not be blank")
             .addCheck(a -> StringUtils.isNotBlank(a.getDocumentId()), "Annotation document id must not be blank")
-            .addCheck(a -> StringUtils.isNotBlank(a.getAnalyticSourceHash()), "Annotation source hash must not be blank")
+            .addCheck(a -> StringUtils.isNotBlank(a.getAnalyticSourceHash()) || StringUtils.isNotBlank(a.getSource().getAnalyticHash()), "Annotation source hash must not be blank")
             .addCheck(a -> StringUtils.isNotBlank(a.getAnnotationType()), "Annotation type must not be blank")
             .addCheck(a -> !a.getMetadataMap().isEmpty(), "Annotation metadata map must include a 'visibility' and 'created_date'")
             .addCheck(a -> a.getMetadataMap().get("visibility") != null, "Annotation metadata map must include a 'visibility'")

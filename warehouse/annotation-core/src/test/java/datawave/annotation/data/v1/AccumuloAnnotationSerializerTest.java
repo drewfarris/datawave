@@ -51,7 +51,7 @@ public class AccumuloAnnotationSerializerTest {
 
         // an id must be assigned to serialize/deserialize an annotation - typically this is handled by the data
         // access object.
-        Annotation expectedAnnotation = AnnotationUtils.injectAnnotationAndSegmentIds(testAnnotation);
+        Annotation expectedAnnotation = AnnotationUtils.injectAllHashes(testAnnotation);
 
         AnnotationSerializer<Iterator<Map.Entry<Key,Value>>,Annotation> serializer = new AccumuloAnnotationSerializer();
         Iterator<Map.Entry<Key,Value>> results = serializer.serialize(expectedAnnotation);
@@ -83,7 +83,7 @@ public class AccumuloAnnotationSerializerTest {
 
         // an id must be assigned to serialize/deserialize an annotation - typically this is handled by the data
         // access object.
-        Annotation expectedAnnotation = AnnotationUtils.injectAnnotationAndSegmentIds(testAnnotation);
+        Annotation expectedAnnotation = AnnotationUtils.injectAllHashes(testAnnotation);
 
         AnnotationSerializer<Iterator<Map.Entry<Key,Value>>,Annotation> serializer = new AccumuloAnnotationSerializer();
         Iterator<Map.Entry<Key,Value>> results = serializer.serialize(expectedAnnotation);

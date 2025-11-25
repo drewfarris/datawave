@@ -4,42 +4,45 @@
 package datawave.annotation.protobuf.v1;
 
 public interface AnnotationListOrBuilder extends
-    // @@protoc_insertion_point(interface_extends:datawave.annotation.protobuf.v1.AnnotationList)
-    com.google.protobuf.MessageOrBuilder {
+                // @@protoc_insertion_point(interface_extends:datawave.annotation.protobuf.v1.AnnotationList)
+                com.google.protobuf.MessageOrBuilder {
 
-  /**
-   * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
-   */
-  java.util.List<datawave.annotation.protobuf.v1.Annotation> 
-      getAnnotationsList();
-  /**
-   * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
-   */
-  datawave.annotation.protobuf.v1.Annotation getAnnotations(int index);
-  /**
-   * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
-   */
-  int getAnnotationsCount();
-  /**
-   * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
-   */
-  java.util.List<? extends datawave.annotation.protobuf.v1.AnnotationOrBuilder> 
-      getAnnotationsOrBuilderList();
-  /**
-   * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
-   */
-  datawave.annotation.protobuf.v1.AnnotationOrBuilder getAnnotationsOrBuilder(
-      int index);
+    /**
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     */
+    java.util.List<datawave.annotation.protobuf.v1.Annotation> getAnnotationsList();
 
-  /**
-   * <code>string nextPageToken = 2;</code>
-   * @return The nextPageToken.
-   */
-  java.lang.String getNextPageToken();
-  /**
-   * <code>string nextPageToken = 2;</code>
-   * @return The bytes for nextPageToken.
-   */
-  com.google.protobuf.ByteString
-      getNextPageTokenBytes();
+    /**
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     */
+    datawave.annotation.protobuf.v1.Annotation getAnnotations(int index);
+
+    /**
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     */
+    int getAnnotationsCount();
+
+    /**
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     */
+    java.util.List<? extends datawave.annotation.protobuf.v1.AnnotationOrBuilder> getAnnotationsOrBuilderList();
+
+    /**
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     */
+    datawave.annotation.protobuf.v1.AnnotationOrBuilder getAnnotationsOrBuilder(int index);
+
+    /**
+     * <code>string nextPageToken = 2;</code>
+     *
+     * @return The nextPageToken.
+     */
+    java.lang.String getNextPageToken();
+
+    /**
+     * <code>string nextPageToken = 2;</code>
+     *
+     * @return The bytes for nextPageToken.
+     */
+    com.google.protobuf.ByteString getNextPageTokenBytes();
 }

@@ -145,19 +145,15 @@ public class AnnotationAssertions {
     public static void compareSegmentBoundaries(SegmentBoundary expected, SegmentBoundary result, List<String> errorMessages) {
 
         if (!expected.getBoundaryType().equals(result.getBoundaryType())) {
-            errorMessages.add("Mismatched boundary types: expected " + expected.getBoundaryType() + " result: " + result.getBoundaryType());
-
-        }
-
-        if (expected.getBoundaryType().equals(result.getBoundaryType())) {
-            errorMessages.add("Mismatched boundary case: expected " + expected.getBoundaryType() + " result: " + result.getBoundaryType());
+            errorMessages.add("Mismatched boundary type: expected " + expected.getBoundaryType() + " result: " + result.getBoundaryType());
         } else {
             BoundaryType boundaryType = result.getBoundaryType();
             switch (boundaryType) {
                 case TIME_MILLI:
                 case TEXT_CHAR:
                     if ((expected.getStart() != result.getStart()) || (expected.getEnd() != result.getEnd())) {
-                        errorMessages.add("Mismatched " + boundaryType + " boundary: expected [" + expected.getStart() + "-" + expected.getEnd() + "], result [" + result.getStart() + "-" + result.getEnd() + "]");
+                        errorMessages.add("Mismatched " + boundaryType + " boundary: expected [" + expected.getStart() + "-" + expected.getEnd() + "], result ["
+                                        + result.getStart() + "-" + result.getEnd() + "]");
                     }
                     break;
                 case POINTS:

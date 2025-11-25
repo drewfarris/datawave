@@ -31,30 +31,35 @@ public class AnnotationUtils {
     }
 
     /**
-     * Assign identifiers to the annotation and its segments.
+     * Calculate and assign all necessary hashes to annotations, segments and segment values.
      *
      * @param annotation
      *            the annotation to assign identifiers to.
      * @return the modified annotation with identifiers injected.
      */
-    public static Annotation injectAnnotationAndSegmentIds(Annotation annotation) {
+    public static Annotation injectAllHashes(Annotation annotation) {
         // first assign segment ids and collect the updated segments
         final List<Segment> updatedSegments = new ArrayList<>();
         for (Segment segment : annotation.getSegmentsList()) {
-            Segment identifiedSegment = AnnotationUtils.injectSegmentId(segment);
-            updatedSegments.add(identifiedSegment);
+            final List<SegmentValue> updatedSegmentValues = new ArrayList<>();
+            for (SegmentValue value : segment.getValuesList()) {
+                SegmentValue hashedValue = injectSegmentValueHash(value);
+                updatedSegmentValues.add(hashedValue);
+            }
+            Segment segmentHashedValues = segment.toBuilder().clearValues().addAllValues(updatedSegmentValues).build();
+            Segment hashedSegment = AnnotationUtils.injectSegmentHash(segmentHashedValues);
+            updatedSegments.add(hashedSegment);
         }
         // next, add the updated segments to a new annotation
         final Annotation updatedAnnotation = annotation.toBuilder().clearSegments().addAllSegments(updatedSegments).build();
 
         // finally, generate the annotation id for the updated annotation
-        return AnnotationUtils.injectAnnotationId(updatedAnnotation);
+        return AnnotationUtils.injectAnnotationHash(updatedAnnotation);
     }
 
     /**
-     * Utility method to generate and inject the annotation source hashes into the annotation source. Included in the serialized result and supports
-     * deserialization. The identifier is a hash of certain values in the annotation source. This should generally be called by and data access object just
-     * prior to writing the annotation. It generates both the long analytic source hash used for identification and the short analytic hash used for grouping.
+     * Utility method to generate and inject the annotation source hashes into the annotation source. It generates both the long analytic source hash used for
+     * identification and the short analytic hash used for grouping.
      *
      * @param annotationSource
      *            the annotation to inject.
@@ -67,29 +72,40 @@ public class AnnotationUtils {
     }
 
     /**
-     * Utility method to generate and inject the annotation identifier into the annotation. included in the serialized result and support deserialization. The
-     * identifier is a hash of certain values in the annotation. This should generally be called by and data access object just prior to writing the annotation.
+     * Utility method to generate and inject the annotation hash into the annotation.
      *
      * @param annotation
      *            the annotation to inject.
      * @return the annotation with boundary type injected.
      */
-    public static Annotation injectAnnotationId(Annotation annotation) {
+    public static Annotation injectAnnotationHash(Annotation annotation) {
         final String hash = calculateAnnotationHash(annotation);
         return annotation.toBuilder().setAnnotationId(hash).build();
     }
 
     /**
-     * Utility method to generate and inject the segment identifier into the segment. included in the serialized result and support deserialization. The
-     * identifier is a hash of certain values in the segment. This should generally be called by and data access object just prior to writing the annotation.
+     * Utility method to generate and inject the segment hash into the segment.
      *
      * @param segment
      *            the segment to inject.
      * @return the segment with boundary type injected.
      */
-    public static Segment injectSegmentId(Segment segment) {
+    public static Segment injectSegmentHash(Segment segment) {
         final String hash = calculateSegmentHash(segment);
         return segment.toBuilder().setSegmentHash(hash).build();
+    }
+
+    /**
+     * Utility method to generate and inject the segment value hash into the segment value. This should generally be called by the data access object just prior
+     * to writing the annotation.
+     *
+     * @param segmentValue
+     *            the segment to inject.
+     * @return the segment with boundary type injected.
+     */
+    public static SegmentValue injectSegmentValueHash(SegmentValue segmentValue) {
+        final String hash = calculateSegmentValueHash(segmentValue);
+        return segmentValue.toBuilder().setValueHash(hash).build();
     }
 
     /**
@@ -169,7 +185,7 @@ public class AnnotationUtils {
             hasher.putString(key, StandardCharsets.UTF_8);
             hasher.putString(metadataMap.get(key), StandardCharsets.UTF_8);
         }
-        return hasher.hash().toString();
+        return hasher.hash().toString().toUpperCase();
     }
 
     /**
@@ -178,7 +194,6 @@ public class AnnotationUtils {
      * <li>each of the segment values in string form (via {@code toString()})</li>
      * <li>the string form of the boundary (via {@code toString()})</li>
      * </ul>
-     * TODO: validate that this is the right algorithm for hashing the segment.
      *
      * @param segment
      *            the segment to hash.
@@ -202,39 +217,12 @@ public class AnnotationUtils {
                 hasher.putUnencodedChars("TEXT_CHAR").putInt(boundary.getStart()).putInt(boundary.getEnd());
                 break;
         }
-        return hasher.hash().toString();
+        return hasher.hash().toString().toUpperCase();
     }
 
     @SuppressWarnings("UnstableApiUsage")
     public static String calculateSegmentValueHash(SegmentValue v) {
         return Hashing.murmur3_32_fixed().newHasher().putUnencodedChars(v.getValue()).hash().toString().toUpperCase();
-    }
-
-    @SuppressWarnings("UnstableApiUsage")
-    public static void foo(Segment segment) {
-        Hasher hasher = Hashing.murmur3_32_fixed().newHasher();
-
-        for (SegmentValue v : segment.getValuesList()) {
-            hasher.putString(v.getValue(), StandardCharsets.UTF_8);
-            hasher.putDouble(v.getScore());
-            if (!v.getExtensionMap().isEmpty()) {
-                // maps must be hashed in a consistent order (by key)
-                final Map<String,String> extensionMap = v.getExtensionMap();
-                final SortedSet<String> sortedKeySet = new TreeSet<>(extensionMap.keySet());
-                for (String key : sortedKeySet) {
-                    hasher.putString(key, StandardCharsets.UTF_8);
-                    hasher.putString(extensionMap.get(key), StandardCharsets.UTF_8);
-                }
-            }
-        }
-
-        // maps must be hashed in a consistent order (by key)
-        final Map<String,String> metadataMap = segment.getMetadataMap();
-        final SortedSet<String> sortedKeySet = new TreeSet<>(metadataMap.keySet());
-        for (String key : sortedKeySet) {
-            hasher.putString(key, StandardCharsets.UTF_8);
-            hasher.putString(metadataMap.get(key), StandardCharsets.UTF_8);
-        }
     }
 
     /**
@@ -262,7 +250,7 @@ public class AnnotationUtils {
      * If the label is null, an empty string is hashed.
      */
     @SuppressWarnings("UnstableApiUsage")
-    public static final Funnel<List<Point>> pointListFunnel = (pointsList, sink) -> {
+    private static final Funnel<List<Point>> pointListFunnel = (pointsList, sink) -> {
         if (pointsList != null) {
             pointsList.forEach(point -> {
                 sink.putInt(point.getX());

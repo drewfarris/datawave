@@ -7,13 +7,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 
-import datawave.annotation.protobuf.v1.BoundaryType;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 
+import datawave.annotation.protobuf.v1.BoundaryType;
 import datawave.annotation.protobuf.v1.Segment;
 import datawave.annotation.protobuf.v1.SegmentBoundary;
 import datawave.annotation.protobuf.v1.SegmentValue;
@@ -25,13 +25,11 @@ public class SegmentUtilsJsonTest {
 
     //@formatter:off
     final String testJson = "{\n" +
-            "  \"segmentId\": \"5674ff10\",\n" +
+            "  \"segmentHash\": \"5674ff10\",\n" +
             "  \"boundary\": {\n" +
             "    \"boundaryType\": \"TIME_MILLI\",\n" +
-            "    \"timeSpan\": {\n" +
-            "      \"startSeconds\": 0.154,\n" +
-            "      \"endSeconds\": 0.52\n" +
-            "    }\n" +
+            "    \"start\": 1540,\n" +
+            "    \"end\": 5200\n" +
             "  },\n" +
             "  \"values\": [{\n" +
             "    \"value\": \"horse\",\n" +
@@ -40,13 +38,11 @@ public class SegmentUtilsJsonTest {
             "}";
 
     final String testMalformedJsonOne = "{\n" +
-            "  \"segmentId\": \"5674ff10\",\n" +
+            "  \"segmentHash\": \"5674ff10\",\n" +
             "  \"boundary\": {\n" +
             "    \"boundaryType\": \"TIME_MILLI\",\n" +
-            "    \"timeSpan\": {\n" +
-            "      \"startSeconds\": 0.154,\n" +
-            "      \"endSeconds\": 0.52\n" +
-            "    }\n" +
+            "    \"start\": 1540,\n" +
+            "    \"end\": 5200\n" +
             "  },\n" +
             "  \"values\": {\n" + // missing list in segment values.
             "    \"value\": \"horse\",\n" +
@@ -55,13 +51,11 @@ public class SegmentUtilsJsonTest {
             "}";
 
     final String testMalformedJsonTwo = "{\n" +
-            "  \"segmentId\": \"5674ff10\",\n" +
-            "  \"boundary\": [{\n" + // list in boundary
+            "  \"segmentHash\": \"5674ff10\",\n" +
+            "  \"boundary\": [{\n" +
             "    \"boundaryType\": \"TIME_MILLI\",\n" +
-            "    \"timeSpan\": {\n" +
-            "      \"startSeconds\": 0.154,\n" +
-            "      \"endSeconds\": 0.52\n" +
-            "    }\n" +
+            "    \"start\": 1540,\n" +
+            "    \"end\": 5200\n" +
             "  }],\n" +
             "  \"values\": [{\n" +
             "    \"value\": \"horse\",\n" +
@@ -76,8 +70,8 @@ public class SegmentUtilsJsonTest {
         String json = AnnotationJsonUtils.segmentToJson(s);
         log.info(json);
         assertTrue(json.contains("\"boundaryType\": \"TIME_MILLI\""));
-        assertTrue(json.contains("\"startSeconds\": 0.154"));
-        assertTrue(json.contains("\"endSeconds\": 0.52"));
+        assertTrue(json.contains("\"start\": 1540"));
+        assertTrue(json.contains("\"end\": 5200"));
 
     }
 
@@ -95,10 +89,8 @@ public class SegmentUtilsJsonTest {
         // in this case the behavior is determined by how we resolve boundary types in AnnotationUtils, but that's an
         // implementation detail. Also, this would be caught by something that checks the object for validity prior to
         // persistence.
-        SegmentBoundary bounds = SegmentBoundary.newBuilder()
-                .setBoundaryType(BoundaryType.TIME_MILLI).setBoundaryType(BoundaryType.TEXT_CHAR)
-                .setStart(1).setEnd(2)
-                .setStart(4).setEnd(10).build();
+        SegmentBoundary bounds = SegmentBoundary.newBuilder().setBoundaryType(BoundaryType.TIME_MILLI).setBoundaryType(BoundaryType.TEXT_CHAR).setStart(1)
+                        .setEnd(2).setStart(4).setEnd(10).build();
 
         Segment s = Segment.newBuilder().setBoundary(bounds).build();
         String json = AnnotationJsonUtils.segmentToJson(s);

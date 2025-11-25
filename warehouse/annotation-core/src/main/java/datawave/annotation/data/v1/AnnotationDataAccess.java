@@ -535,7 +535,7 @@ public class AnnotationDataAccess {
      */
     protected Annotation prepareAnnotationForAdd(Annotation annotation) {
         validateAnnotationForAdd(annotation);
-        Annotation identifiedAnnotation = AnnotationUtils.injectAnnotationAndSegmentIds(annotation);
+        Annotation identifiedAnnotation = AnnotationUtils.injectAllHashes(annotation);
         checkAnnotationForConflicts(identifiedAnnotation);
         return identifiedAnnotation;
     }
@@ -589,8 +589,7 @@ public class AnnotationDataAccess {
             }
             final String segmentHash = segment.getSegmentHash();
             if (!observedSegmentIds.add(segmentHash)) {
-                throw new AnnotationWriteException("Cannot add annotation because it already contains multiple segments with the same id "
-                                + segmentWithAnnotationContext(segment, annotation));
+                throw new AnnotationWriteException("Cannot add annotation because it contains multiple segments with the same id " + annotation);
             }
         }
 
