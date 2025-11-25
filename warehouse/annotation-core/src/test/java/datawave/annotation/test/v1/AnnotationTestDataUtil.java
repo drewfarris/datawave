@@ -23,13 +23,16 @@ import datawave.data.hash.HashUID;
  * the data access objects.
  */
 public class AnnotationTestDataUtil {
+    public static final String CREATED_DATE = "2025-11-01T12:00:00Z";
+    public static final String VISIBILITY = "PUBLIC";
+
     public static AnnotationSource generateTestAnnotationSource() {
         //@formatter:off
         return AnnotationSource.newBuilder()
                 .setEngine("inline v6")
                 .setModel("GR Supra")
-                .putMetadata("visibility", "PUBLIC")
-                .putMetadata("created_date","2025-11-01T12:00:00Z")
+                .putMetadata("visibility", VISIBILITY)
+                .putMetadata("created_date",CREATED_DATE)
                 .putConfiguration("octane","99")
                 .putConfiguration("model_year", "2025")
                 .build();
@@ -53,8 +56,8 @@ public class AnnotationTestDataUtil {
         Map<String,String> metadata = new HashMap<>();
         metadata.put("foo", "bar");
         metadata.put("plough", "plover");
-        metadata.put("visibility", "PUBLIC");
-        metadata.put("created_date", "2025-10-01T00:00:00Z");
+        metadata.put("visibility", VISIBILITY);
+        metadata.put("created_date", CREATED_DATE);
         return metadata;
     }
 
@@ -123,8 +126,8 @@ public class AnnotationTestDataUtil {
                     iteration++;
                     //@formatter:off
                     Map<String, String> metadata = Map.of(
-                        "visibility", "PUBLIC",
-                        "created_date", "2025-10-01T00:00:00Z",
+                        "visibility", VISIBILITY,
+                        "created_date", CREATED_DATE,
                         "provenance", engine + "/" + model
                     );
 
@@ -237,8 +240,8 @@ public class AnnotationTestDataUtil {
         metadata.put("day", day);
         metadata.put("foo", "bar");
         metadata.put("plough", "plover");
-        metadata.put("visibility", "PUBLIC");
-        metadata.put("created_date", "2025-10-01T00:00:00Z");
+        metadata.put("visibility", VISIBILITY);
+        metadata.put("created_date", CREATED_DATE);
         return metadata;
     }
 }

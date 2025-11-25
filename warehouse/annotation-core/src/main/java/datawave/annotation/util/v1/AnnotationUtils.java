@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
-import java.util.function.Consumer;
 
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -16,7 +15,6 @@ import com.google.common.hash.Funnel;
 import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
-import com.google.common.hash.PrimitiveSink;
 
 import datawave.annotation.protobuf.v1.Annotation;
 import datawave.annotation.protobuf.v1.AnnotationSource;
@@ -31,7 +29,7 @@ public class AnnotationUtils {
     protected static final Logger log = LoggerFactory.getLogger(AnnotationUtils.class);
 
     public static Annotation injectAnnotationSource(Annotation a, AnnotationSource as) {
-        return a.toBuilder().clearSource().setSource(as).build();
+        return a.toBuilder().clearSource().setSource(as).clearAnalyticSourceHash().setAnalyticSourceHash(as.getAnalyticSourceHash()).build();
     }
 
     /** Enum for the SegmentBoundary types */

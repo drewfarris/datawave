@@ -6,13 +6,12 @@ Provides a generic method to annotate portions of data stored in datawave.
 
 Annotations are encoded in Accumulo as follows.
 
-| Purpose                | Row             | Column Family                                       | Column Qualifier                         | Value            |
-|------------------------|-----------------|-----------------------------------------------------|------------------------------------------|------------------|
-| Annotation Source Hash | documentShardId | documentDataType (n) documentUid (n) annotationType | annotationId (n) "analyticHash (n) value | None             |
-| Annotation Document Id | documentShardId | documentDataType (n) documentUid (n) annotationType | annotationId (n) "documentId" (n) value  | None             |
-| Annotation Metadata    | documentShardId | documentDataType (n) documentUid (n) annotationType | annotationId (n) key (n) value           | None             |
-| Annotation Segment     | documentShardId | documentDataType (n) documentUid (n) annotationType | annotationId (n) segmentId               | Protobuf Value   |
-| Annotation Update      | documentShardId | documentDataType (n) documentUid (n) annotationType | annotationId (n) segmentId.updateId      | Protobuf Value   |
+| Purpose                | Row             | Column Family                                       | Column Qualifier                          | Value            |
+|------------------------|-----------------|-----------------------------------------------------|-------------------------------------------|------------------|
+| Annotation Source Hash | documentShardId | documentDataType (n) documentUid (n) annotationType | annotationHash (n) "source" (n) value     | None             |
+| Annotation Document Id | documentShardId | documentDataType (n) documentUid (n) annotationType | annotationHash (n) "doc" (n) value        | None             |
+| Annotation Metadata    | documentShardId | documentDataType (n) documentUid (n) annotationType | annotationHash (n) "md" (n) key (n) value | None             |
+| Annotation Segment     | documentShardId | documentDataType (n) documentUid (n) annotationType | annotationHash (n) "seg" (n) segmentHash  | Protobuf Value   |
 
 The primary portion of this table is structured to align with documents in the Datawave shard tables.
 
@@ -44,12 +43,10 @@ Each annotation has one or more segments. Each segment is defined by:
 
 ## Annotation Source Table Structure
 
-| Purpose                  | Row            | Column Family  | Column Qualifier | Value |
-|--------------------------|----------------|----------------|------------------|-------|
-| Annotation Source Engine | analyticHash   | engine         | engineValue      | None  |
-| Annotation Source Model  | analyticHash   | model          | modelValue       | None  |
-| Annotation Source Label  | analyticHash   | sourceLabel    | sourceLabelValue | None  |
-| Annotation Source Config | analyticHash   | config         | key (n) value    | None  |
+| Purpose                | Row                | Column Family | Column Qualifier                            | Value                      |
+|------------------------|--------------------|---------------|---------------------------------------------|----------------------------|
+| Annotation Source Data | analyticSourceHash | "data"        | engineValue (n) modelValue (n) analyticHash | Annotation Source Protobuf |
+
 
 # Protobuf Compiler, Supporting Libraries and Tools
 

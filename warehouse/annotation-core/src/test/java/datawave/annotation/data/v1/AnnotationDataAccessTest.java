@@ -359,8 +359,8 @@ public class AnnotationDataAccessTest {
         for (Segment segment : segments) {
             // TODO: test extensions
             SegmentValue expectedValue = SegmentValue.newBuilder().setValue(expectedWords[pos]).setScore(1.0f).build();
-            TextSpanChars expectedSpan = TextSpanChars.newBuilder().setStart(expectedStarts[pos])
-                            .setEnd(expectedStarts[pos] + expectedWords[pos].length()).build();
+            TextSpanChars expectedSpan = TextSpanChars.newBuilder().setStart(expectedStarts[pos]).setEnd(expectedStarts[pos] + expectedWords[pos].length())
+                            .build();
             pos++;
 
             List<SegmentValue> observedValues = segment.getValuesList();
