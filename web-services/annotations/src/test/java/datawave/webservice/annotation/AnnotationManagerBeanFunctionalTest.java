@@ -228,6 +228,9 @@ public class AnnotationManagerBeanFunctionalTest {
     }
 
     public static Annotation generateCorleoneAnnotation() {
+        AnnotationSource baseAnnotationSource = generateTestAnnotationSource();
+        AnnotationSource annotationSource = AnnotationUtils.injectAnnotationSourceHashes(baseAnnotationSource);
+
         Map<String,String> metadata = new HashMap<>();
         metadata.put("UUID", "CORLEONE");
         metadata.put("visibility", "ALL");
@@ -239,6 +242,8 @@ public class AnnotationManagerBeanFunctionalTest {
                 .setDataType("test")
                 .setUid("-d5uxna.msizfm.-oxy0iu")
                 .setAnnotationType("corleoneAnnotationType")
+                .setDocumentId("CORLEONE")
+                .setSource(annotationSource)
                 .addAllSegments(List.of(generateMultiTestSegment()))
                 .putAllMetadata(metadata)
                 .build();
@@ -255,7 +260,7 @@ public class AnnotationManagerBeanFunctionalTest {
 
     @Test
     public void testGetAnnotationSource() {
-        Response response = annotationManager.getAnnotationSource("1fd902ac");
+        Response response = annotationManager.getAnnotationSource("F1A0463C207B3778B472B506F3F8351A");
         assertResponseStatus(200, response);
         AnnotationSource annotationSource = assertExpectedEntity(AnnotationSource.class, response);
         assertNotNull(annotationSource);
@@ -263,11 +268,11 @@ public class AnnotationManagerBeanFunctionalTest {
 
     @Test
     public void testGetMissingAnnotationSource() {
-        Response response = annotationManager.getAnnotationSource("1fd902ab");
+        Response response = annotationManager.getAnnotationSource("F1A0463C207B3778B472B506F3F8351B");
         assertResponseStatus(404, response);
         String errorResponse = assertExpectedEntity(String.class, response);
         assertContains("No annotation source found for analyticHash", errorResponse);
-        assertContains("1fd902ab", errorResponse);
+        assertContains("F1A0463C207B3778B472B506F3F8351B", errorResponse);
 
     }
 
@@ -420,7 +425,7 @@ public class AnnotationManagerBeanFunctionalTest {
     public void testGetAnnotationInternalId() {
         Annotation testAnnotation = generateTestAnnotation();
         Annotation expectedAnnotation = AnnotationUtils.injectAllHashes(testAnnotation);
-        Response response = annotationManager.getAnnotation("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno", "ddf5715c");
+        Response response = annotationManager.getAnnotation("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno", "23BD91EC");
         assertResponseStatus(200, response);
         List<Annotation> annotationList = assertExpectedEntity(List.class, response);
         assertFalse(annotationList.isEmpty());
@@ -521,7 +526,7 @@ public class AnnotationManagerBeanFunctionalTest {
         Response response = annotationManager.getAnnotationSegment(
                 "DOCUMENT",
                 "20250704_249/testDataType/abcde.fghij.klmno",
-                "ddf5715c",
+                "23BD91EC",
                 "bbbbbbbb");
         //@formatter:on
         assertResponseStatus(404, response);
