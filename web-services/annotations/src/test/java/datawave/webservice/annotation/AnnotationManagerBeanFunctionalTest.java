@@ -318,7 +318,7 @@ public class AnnotationManagerBeanFunctionalTest {
     @Test
     public void testGetAnnotationsForInternalId() {
         Annotation testAnnotation = generateTestAnnotation();
-        Annotation expectedAnnotation = AnnotationUtils.injectAnnotationAndSegmentIds(testAnnotation);
+        Annotation expectedAnnotation = AnnotationUtils.injectAllHashes(testAnnotation);
         Response response = annotationManager.getAnnotationsFor("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno");
         assertResponseStatus(200, response);
         ArrayList<Annotation> annotationList = assertExpectedEntity(ArrayList.class, response);
@@ -329,7 +329,7 @@ public class AnnotationManagerBeanFunctionalTest {
     @Test
     public void testGetAnnotationsForMissingInternalId() {
         Annotation testAnnotation = generateTestAnnotation();
-        Annotation expectedAnnotation = AnnotationUtils.injectAnnotationAndSegmentIds(testAnnotation);
+        Annotation expectedAnnotation = AnnotationUtils.injectAllHashes(testAnnotation);
         Response response = annotationManager.getAnnotationsFor("DOCUMENT", "20250704_249/testDataType/12345.67890.12345");
         assertResponseStatus(404, response);
         String errorResponse = assertExpectedEntity(String.class, response);
@@ -349,7 +349,7 @@ public class AnnotationManagerBeanFunctionalTest {
     @Test
     public void testAnnotationsForExternalIdWithAnnotations() {
         Annotation testAnnotation = generateCorleoneAnnotation();
-        Annotation expectedAnnotation = AnnotationUtils.injectAnnotationAndSegmentIds(testAnnotation);
+        Annotation expectedAnnotation = AnnotationUtils.injectAllHashes(testAnnotation);
         Response response = annotationManager.getAnnotationsFor("UUID", "CORLEONE");
         assertResponseStatus(200, response);
         ArrayList<Annotation> annotationList = assertExpectedEntity(ArrayList.class, response);
@@ -360,7 +360,7 @@ public class AnnotationManagerBeanFunctionalTest {
     @Test
     public void testGetAllAnnotationsByTypeInternalId() {
         Annotation testAnnotation = generateTestAnnotation();
-        Annotation expectedAnnotation = AnnotationUtils.injectAnnotationAndSegmentIds(testAnnotation);
+        Annotation expectedAnnotation = AnnotationUtils.injectAllHashes(testAnnotation);
         // TODO: insert a second annotation for the same document with a different type?
         //@formatter:off
         Response response = annotationManager.getAnnotationsByType(
@@ -378,7 +378,7 @@ public class AnnotationManagerBeanFunctionalTest {
     @Test
     public void testGetAllAnnotationByTypeInternalIdMissingType() {
         Annotation testAnnotation = generateTestAnnotation();
-        Annotation expectedAnnotation = AnnotationUtils.injectAnnotationAndSegmentIds(testAnnotation);
+        Annotation expectedAnnotation = AnnotationUtils.injectAllHashes(testAnnotation);
         // TODO: insert a second annotation for the same document with a different type?
         //@formatter:off
         Response response = annotationManager.getAnnotationsByType(
@@ -408,7 +408,7 @@ public class AnnotationManagerBeanFunctionalTest {
     @Test
     public void testGetAllAnnotationByTypeExternalIdWithAnnotations() {
         Annotation testAnnotation = generateCorleoneAnnotation();
-        Annotation expectedAnnotation = AnnotationUtils.injectAnnotationAndSegmentIds(testAnnotation);
+        Annotation expectedAnnotation = AnnotationUtils.injectAllHashes(testAnnotation);
         Response response = annotationManager.getAnnotationsByType("UUID", "CORLEONE", "corleoneAnnotationType");
         assertResponseStatus(200, response);
         ArrayList<Annotation> annotationList = assertExpectedEntity(ArrayList.class, response);
@@ -419,7 +419,7 @@ public class AnnotationManagerBeanFunctionalTest {
     @Test
     public void testGetAnnotationInternalId() {
         Annotation testAnnotation = generateTestAnnotation();
-        Annotation expectedAnnotation = AnnotationUtils.injectAnnotationAndSegmentIds(testAnnotation);
+        Annotation expectedAnnotation = AnnotationUtils.injectAllHashes(testAnnotation);
         Response response = annotationManager.getAnnotation("DOCUMENT", "20250704_249/testDataType/abcde.fghij.klmno", "ddf5715c");
         assertResponseStatus(200, response);
         List<Annotation> annotationList = assertExpectedEntity(List.class, response);
@@ -454,7 +454,7 @@ public class AnnotationManagerBeanFunctionalTest {
     @Test
     public void testGetAnnotationExternalIdWithAnnotations() {
         Annotation testAnnotation = generateCorleoneAnnotation();
-        Annotation expectedAnnotation = AnnotationUtils.injectAnnotationAndSegmentIds(testAnnotation);
+        Annotation expectedAnnotation = AnnotationUtils.injectAllHashes(testAnnotation);
         Response response = annotationManager.getAnnotation("UUID", "CORLEONE", expectedAnnotation.getAnnotationId());
         assertResponseStatus(200, response);
         List<Annotation> annotationList = assertExpectedEntity(List.class, response);
@@ -477,7 +477,7 @@ public class AnnotationManagerBeanFunctionalTest {
     public void testGetAnnotationSegmentInternalId() {
         Metadata expectedMetadata = new Metadata("shard", "20250704_249", "testDataType", "abcde.fghij.klmno");
         Annotation testAnnotation = generateTestAnnotation();
-        Annotation expectedAnnotation = AnnotationUtils.injectAnnotationAndSegmentIds(testAnnotation);
+        Annotation expectedAnnotation = AnnotationUtils.injectAllHashes(testAnnotation);
 
         //@formatter:off
         Response response = annotationManager.getAnnotationSegment(

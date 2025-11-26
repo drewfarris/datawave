@@ -111,7 +111,8 @@ public class AnnotationTestDataUtil {
                             .setDataType(dataTypes[i])
                             .setUid(documentUid)
                             .setDocumentId(String.format("%012d", ++documentId))
-                            .setAnalyticSourceHash(annotationSource.getAnalyticHash())
+                            .setAnalyticSourceHash(annotationSource.getAnalyticSourceHash())
+                            .setSource(annotationSource)
                             .addAllSegments(generateTestSegments(day, shard, dataType))
                             .putAllMetadata(generateTestMetadata(day, shard, dataType))
                             .setAnnotationType(annotationType).build();
