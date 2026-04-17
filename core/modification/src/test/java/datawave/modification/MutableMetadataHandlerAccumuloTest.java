@@ -261,7 +261,7 @@ public class MutableMetadataHandlerAccumuloTest {
     }
 
     @Test
-    public void deleteWithPurgeTokensShouldLeaveContentContextTermFrequencyRowsBehind() throws Exception {
+    public void deleteWithPurgeTokensShouldRemoveContentContextTermFrequencyRows() throws Exception {
         MutableMetadataHandlerTestSupport support = new MutableMetadataHandlerTestSupport(getClass().getSimpleName() + "_purgeTokensContentContext");
         String quote = "Kind word";
         String tokenValue = "word";
@@ -275,7 +275,7 @@ public class MutableMetadataHandlerAccumuloTest {
 
         support.assertFieldIndexAbsent(QUOTE_TOKEN_FIELD, tokenValue);
         support.assertShardIndexMutation(QUOTE_TOKEN_FIELD, tokenValue, VIS_ALL, -1);
-        support.assertTermFrequencyRowPresent(tokenValue, hashedTokenField, VIS_ALL);
+        support.assertTermFrequencyRowAbsent(tokenValue, hashedTokenField);
     }
 
     @Test
