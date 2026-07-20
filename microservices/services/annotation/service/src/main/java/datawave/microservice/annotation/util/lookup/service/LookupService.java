@@ -46,8 +46,12 @@ public class LookupService {
      *            the type of id to query.
      * @param id
      *            the id value to query.
+     * @param queryParams
+     *            the encoded query parameters to send with the remote lookup request
      * @param systemFrom
      *            the systemFrom to indicate in the query params
+     * @param currentUser
+     *            the current user whose authorization headers should be forwarded to the remote lookup
      * @return a list of zero to many Metadata objects with the internal shard, datatype, uid and table name of the identifier(s) provided. The list will be
      *         empty if no identifier could be found using the authorizations and query logic employed by this class.
      * @throws ResourceNotFoundException

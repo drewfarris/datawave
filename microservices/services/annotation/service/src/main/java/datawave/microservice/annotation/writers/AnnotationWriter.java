@@ -13,6 +13,7 @@ public interface AnnotationWriter {
      *
      * @param annotation
      *            the annotation to write
+     * @return the written annotation when one is produced by the implementation, otherwise an empty optional
      * @throws Exception
      *             if there is a problem writing the annotation
      */

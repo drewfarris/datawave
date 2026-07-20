@@ -567,6 +567,10 @@ public class AnnotationControllerV1 {
      *            the type of id provided
      * @param id
      *            the id itself.
+     * @param queryParameters
+     *            the request query parameters used to prepare any remote lookup request
+     * @param currentUser
+     *            the current user whose authorizations should be applied to the lookup
      * @return a list of zero to many Metadata objects with the internal shard, datatype, uid and table name of the identifier(s) provided. The list will be
      *         empty if no identifier could be found using the authorizations and query logic employed by this class.
      * @throws QueryException
@@ -597,6 +601,8 @@ public class AnnotationControllerV1 {
      * Given a list of annotations, retrieve the annotation source information that is referenced by their analyticHash. If an analyticHash is not found, we
      * simply return the annotation without the source data injected. Currently, no errors are logged.
      *
+     * @param context
+     *            the request-scoped context that provides cached annotation source lookups
      * @param annotations
      *            the annotations to inject sources into
      * @return return annotations with sources injected where possible.
@@ -612,6 +618,12 @@ public class AnnotationControllerV1 {
     /**
      * Given an annotation, retrieve the annotation source information that is referenced by their analyticHash. Employs a per-request hash so we don't look up
      * a single source multiple times.
+     *
+     * @param context
+     *            the request-scoped context that provides cached annotation source lookups
+     * @param a
+     *            the annotation whose source should be looked up and injected when available
+     * @return the original annotation, or the same annotation with its source injected when a matching source is found
      */
     private Annotation lookupAndInjectAnnotationSource(RequestContext context, Annotation a) {
         // no need to inject a source if we already have one.
@@ -733,6 +745,10 @@ public class AnnotationControllerV1 {
          * performed in the various initialize methods exposed by this class. Each of the objects provided as parameters are expected to be shared across many
          * requests.
          *
+         * @param queryParameters
+         *            the incoming request query parameters, including any requested authorization overrides
+         * @param currentUser
+         *            the current user whose identity and authorizations are used for the request
          * @param config
          *            the annotation manager configuration
          * @param connectionFactory
@@ -740,9 +756,9 @@ public class AnnotationControllerV1 {
          * @param accumuloConnectionRequestBean
          *            the accumulo connection request bean - used for tracking accumulo clients requests
          * @param visibilityTransformer
-         *            timestamp transformer implementation
-         * @param timestampTransformer
          *            visibility transformer implementation
+         * @param timestampTransformer
+         *            timestamp transformer implementation
          */
         protected RequestContext(MultiValueMap<String,String> queryParameters, DatawaveUserDetails currentUser, AnnotationProperties config,
                         AccumuloConnectionFactory connectionFactory, AccumuloConnectionRequestMap accumuloConnectionRequestBean,
@@ -875,7 +891,13 @@ public class AnnotationControllerV1 {
             }
         }
 
-        /** Lookup an annotation source or retrieve it from the cache */
+        /**
+         * Lookup an annotation source or retrieve it from the cache.
+         *
+         * @param analyticHash
+         *            the analytic source hash to resolve
+         * @return the cached or retrieved annotation source for the supplied hash, if one exists
+         */
         public Optional<AnnotationSource> getAnnotationSource(String analyticHash) {
             return retrievedSourcesCache.computeIfAbsent(analyticHash, key -> annotationDataAccess.getAnnotationSource(analyticHash));
         }
