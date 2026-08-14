@@ -50,6 +50,7 @@ import datawave.annotation.data.v1.AccumuloAnnotationSerializer;
 import datawave.annotation.data.v1.AccumuloAnnotationSourceSerializer;
 import datawave.annotation.data.v1.AnnotationDataAccess;
 import datawave.annotation.protobuf.v1.Annotation;
+import datawave.annotation.protobuf.v1.AnnotationMessage;
 import datawave.annotation.protobuf.v1.AnnotationSource;
 import datawave.annotation.protobuf.v1.Segment;
 import datawave.annotation.util.Validator;
@@ -58,7 +59,6 @@ import datawave.annotation.util.v1.AnnotationUtils;
 import datawave.annotation.util.v1.AnnotationValidators;
 import datawave.core.common.connection.AccumuloConnectionFactory;
 import datawave.core.query.runner.AccumuloConnectionRequestMap;
-import datawave.microservice.annotation.common.AnnotationMessage;
 import datawave.microservice.annotation.common.AnnotationSupplier;
 import datawave.microservice.annotation.service.config.AnnotationProperties;
 import datawave.microservice.annotation.util.Metadata;
@@ -195,7 +195,7 @@ public class AnnotationControllerV1 {
 
             final List<Annotation> results = new ArrayList<>();
             for (Metadata md : metadata) {
-                final List<Annotation> annotations = annotationDataAccess.getAnnotations(md.getRow(), md.getDataType(), md.getInternalId());
+                final Collection<Annotation> annotations = annotationDataAccess.getAnnotations(md.getRow(), md.getDataType(), md.getInternalId());
                 if (!annotations.isEmpty()) {
                     List<Annotation> annotationsWithSources = lookupAndInjectAnnotationSources(context, annotations);
                     results.addAll(annotationsWithSources);
@@ -230,7 +230,7 @@ public class AnnotationControllerV1 {
 
             final List<Annotation> results = new ArrayList<>();
             for (Metadata md : metadata) {
-                final List<Annotation> annotations = annotationDataAccess.getAnnotationsForType(md.getRow(), md.getDataType(), md.getInternalId(),
+                final Collection<Annotation> annotations = annotationDataAccess.getAnnotationsForType(md.getRow(), md.getDataType(), md.getInternalId(),
                                 annotationType);
                 if (!annotations.isEmpty()) {
                     List<Annotation> annotationsWithSources = lookupAndInjectAnnotationSources(context, annotations);
@@ -469,7 +469,13 @@ public class AnnotationControllerV1 {
         int attempts = 0;
 
         AnnotationProperties.Retry retry = annotationProperties.getRetry();
-        AnnotationMessage annotationMessage = new AnnotationMessage(identifiedAnnotation, AnnotationMessage.Operation.ADD, Collections.emptyMap());
+
+        //@formatter:off
+        AnnotationMessage annotationMessage = AnnotationMessage.newBuilder()
+                .addAnnotations(identifiedAnnotation)
+                .setSource(annotationProperties.getSystemFrom())
+                .build();
+        //@formatter:on
 
         do {
             if (attempts++ > 0) {
@@ -514,7 +520,7 @@ public class AnnotationControllerV1 {
     }
 
     private Optional<Annotation> sendMessage(AnnotationMessage annotationMessage) {
-        String annotationId = annotationMessage.getAnnotation().getAnnotationId();
+        String annotationId = AnnotationMessageUtils.generateId(annotationMessage);
 
         boolean success;
         if (annotationProperties.isAnnotationAckEnabled()) {
@@ -534,7 +540,7 @@ public class AnnotationControllerV1 {
             success = annotationSource.send(MessageBuilder.withPayload(annotationMessage).setCorrelationId(annotationId).build());
         }
 
-        return success ? Optional.of(annotationMessage.getAnnotation()) : Optional.empty();
+        return success ? Optional.of(annotationMessage.getAnnotationsList().get(0)) : Optional.empty();
     }
 
     /**
@@ -589,7 +595,7 @@ public class AnnotationControllerV1 {
             return parseDocumentIdentifier(id);
         }
 
-        return lookupService.executeLookupUUIDQuery(idType, id, prepareLookupParameters(queryParameters), ANNOTATION_SERVICE_SYSTEM_FROM, currentUser);
+        return lookupService.executeLookupUUIDQuery(idType, id, prepareLookupParameters(queryParameters), annotationProperties.getSystemFrom(), currentUser);
     }
 
     private String prepareLookupParameters(MultiValueMap<String,String> queryParameters) {
@@ -607,7 +613,7 @@ public class AnnotationControllerV1 {
      *            the annotations to inject sources into
      * @return return annotations with sources injected where possible.
      */
-    private List<Annotation> lookupAndInjectAnnotationSources(RequestContext context, List<Annotation> annotations) {
+    private List<Annotation> lookupAndInjectAnnotationSources(RequestContext context, Collection<Annotation> annotations) {
         final List<Annotation> results = new ArrayList<>();
         for (Annotation a : annotations) {
             results.add(lookupAndInjectAnnotationSource(context, a));

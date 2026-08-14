@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
+import datawave.annotation.protobuf.v1.AnnotationMessage;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -175,6 +176,35 @@ public class AnnotationUtils {
      */
     public static String calculateSourceAnalyticSourceHash(AnnotationSource annotationSource) {
         return calculateSourceHash(Hashing.murmur3_128(), annotationSource);
+    }
+
+    /**
+     * Calculate the 32-bit murmur3 hash used to identify an annotation, this includes the following attributes:
+     * <ul>
+     * <li>the annotation type</li>
+     * <li>the hash for each segment</li>
+     * <li>each key and value in the metadata</li>
+     * </ul>
+     *
+     * @param annotation
+     *            the annotation to hash.
+     * @return the calculated hash.
+     */
+    @SuppressWarnings("UnstableApiUsage")
+    public static String calculateAnnotationMessageHash(AnnotationMessage annotation) {
+        Hasher hasher = Hashing.murmur3_32_fixed().newHasher();
+        hasher.putString(annotation.getAnnotationType(), StandardCharsets.UTF_8);
+        for (Segment s : annotation.getSegmentsList()) {
+            hasher.putString(calculateSegmentHash(s), StandardCharsets.UTF_8);
+        }
+        // maps must be hashed in a consistent order (by key)
+        final Map<String,String> metadataMap = annotation.getMetadataMap();
+        final SortedSet<String> sortedKeySet = new TreeSet<>(metadataMap.keySet());
+        for (String key : sortedKeySet) {
+            hasher.putString(key, StandardCharsets.UTF_8);
+            hasher.putString(metadataMap.get(key), StandardCharsets.UTF_8);
+        }
+        return hasher.hash().toString().toUpperCase();
     }
 
     /**

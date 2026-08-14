@@ -36,6 +36,8 @@ public class AnnotationProperties {
 
     private List<String> fsConfigResources;
 
+    private String systemFrom;
+
     @Valid
     private Retry retry = new Retry();
 
