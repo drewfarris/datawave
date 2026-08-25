@@ -5,7 +5,7 @@ package datawave.annotation.protobuf.v1;
 
 /**
  * <pre>
- * Used for truthmark synchronization
+ * Used for synchronizing annotations between systems.
  * </pre>
  *
  * Protobuf type {@code datawave.annotation.protobuf.v1.AnnotationMessage}
@@ -21,6 +21,7 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
     }
 
     private AnnotationMessage() {
+        annotationMessageId_ = "";
         annotations_ = java.util.Collections.emptyList();
         source_ = "";
     }
@@ -40,6 +41,17 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         return datawave.annotation.protobuf.v1.AnnotationV1.internal_static_datawave_annotation_protobuf_v1_AnnotationMessage_descriptor;
     }
 
+    @SuppressWarnings({"rawtypes"})
+    @java.lang.Override
+    protected com.google.protobuf.MapField internalGetMapField(int number) {
+        switch (number) {
+            case 50:
+                return internalGetParameters();
+            default:
+                throw new RuntimeException("Invalid map field number: " + number);
+        }
+    }
+
     @java.lang.Override
     protected com.google.protobuf.GeneratedMessageV3.FieldAccessorTable internalGetFieldAccessorTable() {
         return datawave.annotation.protobuf.v1.AnnotationV1.internal_static_datawave_annotation_protobuf_v1_AnnotationMessage_fieldAccessorTable
@@ -47,11 +59,61 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
                                         datawave.annotation.protobuf.v1.AnnotationMessage.Builder.class);
     }
 
-    public static final int ANNOTATIONS_FIELD_NUMBER = 1;
+    public static final int ANNOTATIONMESSAGEID_FIELD_NUMBER = 1;
+    private volatile java.lang.Object annotationMessageId_;
+
+    /**
+     * <pre>
+     * the 128-bit hash for this message
+     * </pre>
+     *
+     * <code>string annotationMessageId = 1;</code>
+     *
+     * @return The annotationMessageId.
+     */
+    @java.lang.Override
+    public java.lang.String getAnnotationMessageId() {
+        java.lang.Object ref = annotationMessageId_;
+        if (ref instanceof java.lang.String) {
+            return (java.lang.String) ref;
+        } else {
+            com.google.protobuf.ByteString bs = (com.google.protobuf.ByteString) ref;
+            java.lang.String s = bs.toStringUtf8();
+            annotationMessageId_ = s;
+            return s;
+        }
+    }
+
+    /**
+     * <pre>
+     * the 128-bit hash for this message
+     * </pre>
+     *
+     * <code>string annotationMessageId = 1;</code>
+     *
+     * @return The bytes for annotationMessageId.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString getAnnotationMessageIdBytes() {
+        java.lang.Object ref = annotationMessageId_;
+        if (ref instanceof java.lang.String) {
+            com.google.protobuf.ByteString b = com.google.protobuf.ByteString.copyFromUtf8((java.lang.String) ref);
+            annotationMessageId_ = b;
+            return b;
+        } else {
+            return (com.google.protobuf.ByteString) ref;
+        }
+    }
+
+    public static final int ANNOTATIONS_FIELD_NUMBER = 2;
     private java.util.List<datawave.annotation.protobuf.v1.Annotation> annotations_;
 
     /**
-     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     * <pre>
+     * a list of one or more annotations we're sending
+     * </pre>
+     *
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
      */
     @java.lang.Override
     public java.util.List<datawave.annotation.protobuf.v1.Annotation> getAnnotationsList() {
@@ -59,7 +121,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
     }
 
     /**
-     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     * <pre>
+     * a list of one or more annotations we're sending
+     * </pre>
+     *
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
      */
     @java.lang.Override
     public java.util.List<? extends datawave.annotation.protobuf.v1.AnnotationOrBuilder> getAnnotationsOrBuilderList() {
@@ -67,7 +133,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
     }
 
     /**
-     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     * <pre>
+     * a list of one or more annotations we're sending
+     * </pre>
+     *
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
      */
     @java.lang.Override
     public int getAnnotationsCount() {
@@ -75,7 +145,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
     }
 
     /**
-     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     * <pre>
+     * a list of one or more annotations we're sending
+     * </pre>
+     *
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
      */
     @java.lang.Override
     public datawave.annotation.protobuf.v1.Annotation getAnnotations(int index) {
@@ -83,18 +157,26 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
     }
 
     /**
-     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     * <pre>
+     * a list of one or more annotations we're sending
+     * </pre>
+     *
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
      */
     @java.lang.Override
     public datawave.annotation.protobuf.v1.AnnotationOrBuilder getAnnotationsOrBuilder(int index) {
         return annotations_.get(index);
     }
 
-    public static final int SOURCE_FIELD_NUMBER = 2;
+    public static final int SOURCE_FIELD_NUMBER = 3;
     private volatile java.lang.Object source_;
 
     /**
-     * <code>string source = 2;</code>
+     * <pre>
+     * the source of the message.
+     * </pre>
+     *
+     * <code>string source = 3;</code>
      *
      * @return The source.
      */
@@ -112,7 +194,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
     }
 
     /**
-     * <code>string source = 2;</code>
+     * <pre>
+     * the source of the message.
+     * </pre>
+     *
+     * <code>string source = 3;</code>
      *
      * @return The bytes for source.
      */
@@ -126,6 +212,102 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         } else {
             return (com.google.protobuf.ByteString) ref;
         }
+    }
+
+    public static final int PARAMETERS_FIELD_NUMBER = 50;
+
+    private static final class ParametersDefaultEntryHolder {
+        static final com.google.protobuf.MapEntry<java.lang.String,java.lang.String> defaultEntry = com.google.protobuf.MapEntry.<java.lang.String,java.lang.String> newDefaultInstance(
+                        datawave.annotation.protobuf.v1.AnnotationV1.internal_static_datawave_annotation_protobuf_v1_AnnotationMessage_ParametersEntry_descriptor,
+                        com.google.protobuf.WireFormat.FieldType.STRING, "", com.google.protobuf.WireFormat.FieldType.STRING, "");
+    }
+
+    private com.google.protobuf.MapField<java.lang.String,java.lang.String> parameters_;
+
+    private com.google.protobuf.MapField<java.lang.String,java.lang.String> internalGetParameters() {
+        if (parameters_ == null) {
+            return com.google.protobuf.MapField.emptyMapField(ParametersDefaultEntryHolder.defaultEntry);
+        }
+        return parameters_;
+    }
+
+    public int getParametersCount() {
+        return internalGetParameters().getMap().size();
+    }
+
+    /**
+     * <pre>
+     * key-value pairs identifying the parameters for the message.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; parameters = 50;</code>
+     */
+
+    @java.lang.Override
+    public boolean containsParameters(java.lang.String key) {
+        if (key == null) {
+            throw new java.lang.NullPointerException();
+        }
+        return internalGetParameters().getMap().containsKey(key);
+    }
+
+    /**
+     * Use {@link #getParametersMap()} instead.
+     */
+    @java.lang.Override
+    @java.lang.Deprecated
+    public java.util.Map<java.lang.String,java.lang.String> getParameters() {
+        return getParametersMap();
+    }
+
+    /**
+     * <pre>
+     * key-value pairs identifying the parameters for the message.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; parameters = 50;</code>
+     */
+    @java.lang.Override
+
+    public java.util.Map<java.lang.String,java.lang.String> getParametersMap() {
+        return internalGetParameters().getMap();
+    }
+
+    /**
+     * <pre>
+     * key-value pairs identifying the parameters for the message.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; parameters = 50;</code>
+     */
+    @java.lang.Override
+
+    public java.lang.String getParametersOrDefault(java.lang.String key, java.lang.String defaultValue) {
+        if (key == null) {
+            throw new java.lang.NullPointerException();
+        }
+        java.util.Map<java.lang.String,java.lang.String> map = internalGetParameters().getMap();
+        return map.containsKey(key) ? map.get(key) : defaultValue;
+    }
+
+    /**
+     * <pre>
+     * key-value pairs identifying the parameters for the message.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; parameters = 50;</code>
+     */
+    @java.lang.Override
+
+    public java.lang.String getParametersOrThrow(java.lang.String key) {
+        if (key == null) {
+            throw new java.lang.NullPointerException();
+        }
+        java.util.Map<java.lang.String,java.lang.String> map = internalGetParameters().getMap();
+        if (!map.containsKey(key)) {
+            throw new java.lang.IllegalArgumentException();
+        }
+        return map.get(key);
     }
 
     private byte memoizedIsInitialized = -1;
@@ -144,12 +326,16 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
 
     @java.lang.Override
     public void writeTo(com.google.protobuf.CodedOutputStream output) throws java.io.IOException {
+        if (!getAnnotationMessageIdBytes().isEmpty()) {
+            com.google.protobuf.GeneratedMessageV3.writeString(output, 1, annotationMessageId_);
+        }
         for (int i = 0; i < annotations_.size(); i++) {
-            output.writeMessage(1, annotations_.get(i));
+            output.writeMessage(2, annotations_.get(i));
         }
         if (!getSourceBytes().isEmpty()) {
-            com.google.protobuf.GeneratedMessageV3.writeString(output, 2, source_);
+            com.google.protobuf.GeneratedMessageV3.writeString(output, 3, source_);
         }
+        com.google.protobuf.GeneratedMessageV3.serializeStringMapTo(output, internalGetParameters(), ParametersDefaultEntryHolder.defaultEntry, 50);
         getUnknownFields().writeTo(output);
     }
 
@@ -160,11 +346,19 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
             return size;
 
         size = 0;
+        if (!getAnnotationMessageIdBytes().isEmpty()) {
+            size += com.google.protobuf.GeneratedMessageV3.computeStringSize(1, annotationMessageId_);
+        }
         for (int i = 0; i < annotations_.size(); i++) {
-            size += com.google.protobuf.CodedOutputStream.computeMessageSize(1, annotations_.get(i));
+            size += com.google.protobuf.CodedOutputStream.computeMessageSize(2, annotations_.get(i));
         }
         if (!getSourceBytes().isEmpty()) {
-            size += com.google.protobuf.GeneratedMessageV3.computeStringSize(2, source_);
+            size += com.google.protobuf.GeneratedMessageV3.computeStringSize(3, source_);
+        }
+        for (java.util.Map.Entry<java.lang.String,java.lang.String> entry : internalGetParameters().getMap().entrySet()) {
+            com.google.protobuf.MapEntry<java.lang.String,java.lang.String> parameters__ = ParametersDefaultEntryHolder.defaultEntry.newBuilderForType()
+                            .setKey(entry.getKey()).setValue(entry.getValue()).build();
+            size += com.google.protobuf.CodedOutputStream.computeMessageSize(50, parameters__);
         }
         size += getUnknownFields().getSerializedSize();
         memoizedSize = size;
@@ -181,9 +375,13 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
         datawave.annotation.protobuf.v1.AnnotationMessage other = (datawave.annotation.protobuf.v1.AnnotationMessage) obj;
 
+        if (!getAnnotationMessageId().equals(other.getAnnotationMessageId()))
+            return false;
         if (!getAnnotationsList().equals(other.getAnnotationsList()))
             return false;
         if (!getSource().equals(other.getSource()))
+            return false;
+        if (!internalGetParameters().equals(other.internalGetParameters()))
             return false;
         if (!getUnknownFields().equals(other.getUnknownFields()))
             return false;
@@ -197,12 +395,18 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
         int hash = 41;
         hash = (19 * hash) + getDescriptor().hashCode();
+        hash = (37 * hash) + ANNOTATIONMESSAGEID_FIELD_NUMBER;
+        hash = (53 * hash) + getAnnotationMessageId().hashCode();
         if (getAnnotationsCount() > 0) {
             hash = (37 * hash) + ANNOTATIONS_FIELD_NUMBER;
             hash = (53 * hash) + getAnnotationsList().hashCode();
         }
         hash = (37 * hash) + SOURCE_FIELD_NUMBER;
         hash = (53 * hash) + getSource().hashCode();
+        if (!internalGetParameters().getMap().isEmpty()) {
+            hash = (37 * hash) + PARAMETERS_FIELD_NUMBER;
+            hash = (53 * hash) + internalGetParameters().hashCode();
+        }
         hash = (29 * hash) + getUnknownFields().hashCode();
         memoizedHashCode = hash;
         return hash;
@@ -290,7 +494,7 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
 
     /**
      * <pre>
-     * Used for truthmark synchronization
+     * Used for synchronizing annotations between systems.
      * </pre>
      *
      * Protobuf type {@code datawave.annotation.protobuf.v1.AnnotationMessage}
@@ -300,6 +504,26 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
                     datawave.annotation.protobuf.v1.AnnotationMessageOrBuilder {
         public static final com.google.protobuf.Descriptors.Descriptor getDescriptor() {
             return datawave.annotation.protobuf.v1.AnnotationV1.internal_static_datawave_annotation_protobuf_v1_AnnotationMessage_descriptor;
+        }
+
+        @SuppressWarnings({"rawtypes"})
+        protected com.google.protobuf.MapField internalGetMapField(int number) {
+            switch (number) {
+                case 50:
+                    return internalGetParameters();
+                default:
+                    throw new RuntimeException("Invalid map field number: " + number);
+            }
+        }
+
+        @SuppressWarnings({"rawtypes"})
+        protected com.google.protobuf.MapField internalGetMutableMapField(int number) {
+            switch (number) {
+                case 50:
+                    return internalGetMutableParameters();
+                default:
+                    throw new RuntimeException("Invalid map field number: " + number);
+            }
         }
 
         @java.lang.Override
@@ -322,6 +546,8 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         @java.lang.Override
         public Builder clear() {
             super.clear();
+            annotationMessageId_ = "";
+
             if (annotationsBuilder_ == null) {
                 annotations_ = java.util.Collections.emptyList();
             } else {
@@ -331,6 +557,7 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
             bitField0_ = (bitField0_ & ~0x00000001);
             source_ = "";
 
+            internalGetMutableParameters().clear();
             return this;
         }
 
@@ -357,6 +584,7 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         public datawave.annotation.protobuf.v1.AnnotationMessage buildPartial() {
             datawave.annotation.protobuf.v1.AnnotationMessage result = new datawave.annotation.protobuf.v1.AnnotationMessage(this);
             int from_bitField0_ = bitField0_;
+            result.annotationMessageId_ = annotationMessageId_;
             if (annotationsBuilder_ == null) {
                 if (((bitField0_ & 0x00000001) != 0)) {
                     annotations_ = java.util.Collections.unmodifiableList(annotations_);
@@ -367,6 +595,8 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
                 result.annotations_ = annotationsBuilder_.build();
             }
             result.source_ = source_;
+            result.parameters_ = internalGetParameters();
+            result.parameters_.makeImmutable();
             onBuilt();
             return result;
         }
@@ -414,6 +644,10 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         public Builder mergeFrom(datawave.annotation.protobuf.v1.AnnotationMessage other) {
             if (other == datawave.annotation.protobuf.v1.AnnotationMessage.getDefaultInstance())
                 return this;
+            if (!other.getAnnotationMessageId().isEmpty()) {
+                annotationMessageId_ = other.annotationMessageId_;
+                onChanged();
+            }
             if (annotationsBuilder_ == null) {
                 if (!other.annotations_.isEmpty()) {
                     if (annotations_.isEmpty()) {
@@ -442,6 +676,7 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
                 source_ = other.source_;
                 onChanged();
             }
+            internalGetMutableParameters().mergeFrom(other.internalGetParameters());
             this.mergeUnknownFields(other.getUnknownFields());
             onChanged();
             return this;
@@ -467,6 +702,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
                             done = true;
                             break;
                         case 10: {
+                            annotationMessageId_ = input.readStringRequireUtf8();
+
+                            break;
+                        } // case 10
+                        case 18: {
                             datawave.annotation.protobuf.v1.Annotation m = input.readMessage(datawave.annotation.protobuf.v1.Annotation.parser(),
                                             extensionRegistry);
                             if (annotationsBuilder_ == null) {
@@ -476,12 +716,18 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
                                 annotationsBuilder_.addMessage(m);
                             }
                             break;
-                        } // case 10
-                        case 18: {
+                        } // case 18
+                        case 26: {
                             source_ = input.readStringRequireUtf8();
 
                             break;
-                        } // case 18
+                        } // case 26
+                        case 402: {
+                            com.google.protobuf.MapEntry<java.lang.String,java.lang.String> parameters__ = input
+                                            .readMessage(ParametersDefaultEntryHolder.defaultEntry.getParserForType(), extensionRegistry);
+                            internalGetMutableParameters().getMutableMap().put(parameters__.getKey(), parameters__.getValue());
+                            break;
+                        } // case 402
                         default: {
                             if (!super.parseUnknownField(input, extensionRegistry, tag)) {
                                 done = true; // was an endgroup tag
@@ -500,6 +746,108 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
 
         private int bitField0_;
 
+        private java.lang.Object annotationMessageId_ = "";
+
+        /**
+         * <pre>
+         * the 128-bit hash for this message
+         * </pre>
+         *
+         * <code>string annotationMessageId = 1;</code>
+         *
+         * @return The annotationMessageId.
+         */
+        public java.lang.String getAnnotationMessageId() {
+            java.lang.Object ref = annotationMessageId_;
+            if (!(ref instanceof java.lang.String)) {
+                com.google.protobuf.ByteString bs = (com.google.protobuf.ByteString) ref;
+                java.lang.String s = bs.toStringUtf8();
+                annotationMessageId_ = s;
+                return s;
+            } else {
+                return (java.lang.String) ref;
+            }
+        }
+
+        /**
+         * <pre>
+         * the 128-bit hash for this message
+         * </pre>
+         *
+         * <code>string annotationMessageId = 1;</code>
+         *
+         * @return The bytes for annotationMessageId.
+         */
+        public com.google.protobuf.ByteString getAnnotationMessageIdBytes() {
+            java.lang.Object ref = annotationMessageId_;
+            if (ref instanceof String) {
+                com.google.protobuf.ByteString b = com.google.protobuf.ByteString.copyFromUtf8((java.lang.String) ref);
+                annotationMessageId_ = b;
+                return b;
+            } else {
+                return (com.google.protobuf.ByteString) ref;
+            }
+        }
+
+        /**
+         * <pre>
+         * the 128-bit hash for this message
+         * </pre>
+         *
+         * <code>string annotationMessageId = 1;</code>
+         *
+         * @param value
+         *            The annotationMessageId to set.
+         * @return This builder for chaining.
+         */
+        public Builder setAnnotationMessageId(java.lang.String value) {
+            if (value == null) {
+                throw new NullPointerException();
+            }
+
+            annotationMessageId_ = value;
+            onChanged();
+            return this;
+        }
+
+        /**
+         * <pre>
+         * the 128-bit hash for this message
+         * </pre>
+         *
+         * <code>string annotationMessageId = 1;</code>
+         *
+         * @return This builder for chaining.
+         */
+        public Builder clearAnnotationMessageId() {
+
+            annotationMessageId_ = getDefaultInstance().getAnnotationMessageId();
+            onChanged();
+            return this;
+        }
+
+        /**
+         * <pre>
+         * the 128-bit hash for this message
+         * </pre>
+         *
+         * <code>string annotationMessageId = 1;</code>
+         *
+         * @param value
+         *            The bytes for annotationMessageId to set.
+         * @return This builder for chaining.
+         */
+        public Builder setAnnotationMessageIdBytes(com.google.protobuf.ByteString value) {
+            if (value == null) {
+                throw new NullPointerException();
+            }
+            checkByteStringIsUtf8(value);
+
+            annotationMessageId_ = value;
+            onChanged();
+            return this;
+        }
+
         private java.util.List<datawave.annotation.protobuf.v1.Annotation> annotations_ = java.util.Collections.emptyList();
 
         private void ensureAnnotationsIsMutable() {
@@ -512,7 +860,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         private com.google.protobuf.RepeatedFieldBuilderV3<datawave.annotation.protobuf.v1.Annotation,datawave.annotation.protobuf.v1.Annotation.Builder,datawave.annotation.protobuf.v1.AnnotationOrBuilder> annotationsBuilder_;
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public java.util.List<datawave.annotation.protobuf.v1.Annotation> getAnnotationsList() {
             if (annotationsBuilder_ == null) {
@@ -523,7 +875,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public int getAnnotationsCount() {
             if (annotationsBuilder_ == null) {
@@ -534,7 +890,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public datawave.annotation.protobuf.v1.Annotation getAnnotations(int index) {
             if (annotationsBuilder_ == null) {
@@ -545,7 +905,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public Builder setAnnotations(int index, datawave.annotation.protobuf.v1.Annotation value) {
             if (annotationsBuilder_ == null) {
@@ -562,7 +926,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public Builder setAnnotations(int index, datawave.annotation.protobuf.v1.Annotation.Builder builderForValue) {
             if (annotationsBuilder_ == null) {
@@ -576,7 +944,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public Builder addAnnotations(datawave.annotation.protobuf.v1.Annotation value) {
             if (annotationsBuilder_ == null) {
@@ -593,7 +965,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public Builder addAnnotations(int index, datawave.annotation.protobuf.v1.Annotation value) {
             if (annotationsBuilder_ == null) {
@@ -610,7 +986,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public Builder addAnnotations(datawave.annotation.protobuf.v1.Annotation.Builder builderForValue) {
             if (annotationsBuilder_ == null) {
@@ -624,7 +1004,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public Builder addAnnotations(int index, datawave.annotation.protobuf.v1.Annotation.Builder builderForValue) {
             if (annotationsBuilder_ == null) {
@@ -638,7 +1022,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public Builder addAllAnnotations(java.lang.Iterable<? extends datawave.annotation.protobuf.v1.Annotation> values) {
             if (annotationsBuilder_ == null) {
@@ -652,7 +1040,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public Builder clearAnnotations() {
             if (annotationsBuilder_ == null) {
@@ -666,7 +1058,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public Builder removeAnnotations(int index) {
             if (annotationsBuilder_ == null) {
@@ -680,14 +1076,22 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public datawave.annotation.protobuf.v1.Annotation.Builder getAnnotationsBuilder(int index) {
             return getAnnotationsFieldBuilder().getBuilder(index);
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public datawave.annotation.protobuf.v1.AnnotationOrBuilder getAnnotationsOrBuilder(int index) {
             if (annotationsBuilder_ == null) {
@@ -698,7 +1102,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public java.util.List<? extends datawave.annotation.protobuf.v1.AnnotationOrBuilder> getAnnotationsOrBuilderList() {
             if (annotationsBuilder_ != null) {
@@ -709,21 +1117,33 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public datawave.annotation.protobuf.v1.Annotation.Builder addAnnotationsBuilder() {
             return getAnnotationsFieldBuilder().addBuilder(datawave.annotation.protobuf.v1.Annotation.getDefaultInstance());
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public datawave.annotation.protobuf.v1.Annotation.Builder addAnnotationsBuilder(int index) {
             return getAnnotationsFieldBuilder().addBuilder(index, datawave.annotation.protobuf.v1.Annotation.getDefaultInstance());
         }
 
         /**
-         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+         * <pre>
+         * a list of one or more annotations we're sending
+         * </pre>
+         *
+         * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
          */
         public java.util.List<datawave.annotation.protobuf.v1.Annotation.Builder> getAnnotationsBuilderList() {
             return getAnnotationsFieldBuilder().getBuilderList();
@@ -741,7 +1161,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         private java.lang.Object source_ = "";
 
         /**
-         * <code>string source = 2;</code>
+         * <pre>
+         * the source of the message.
+         * </pre>
+         *
+         * <code>string source = 3;</code>
          *
          * @return The source.
          */
@@ -758,7 +1182,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>string source = 2;</code>
+         * <pre>
+         * the source of the message.
+         * </pre>
+         *
+         * <code>string source = 3;</code>
          *
          * @return The bytes for source.
          */
@@ -774,7 +1202,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>string source = 2;</code>
+         * <pre>
+         * the source of the message.
+         * </pre>
+         *
+         * <code>string source = 3;</code>
          *
          * @param value
          *            The source to set.
@@ -791,7 +1223,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>string source = 2;</code>
+         * <pre>
+         * the source of the message.
+         * </pre>
+         *
+         * <code>string source = 3;</code>
          *
          * @return This builder for chaining.
          */
@@ -803,7 +1239,11 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
         }
 
         /**
-         * <code>string source = 2;</code>
+         * <pre>
+         * the source of the message.
+         * </pre>
+         *
+         * <code>string source = 3;</code>
          *
          * @param value
          *            The bytes for source to set.
@@ -817,6 +1257,166 @@ public final class AnnotationMessage extends com.google.protobuf.GeneratedMessag
 
             source_ = value;
             onChanged();
+            return this;
+        }
+
+        private com.google.protobuf.MapField<java.lang.String,java.lang.String> parameters_;
+
+        private com.google.protobuf.MapField<java.lang.String,java.lang.String> internalGetParameters() {
+            if (parameters_ == null) {
+                return com.google.protobuf.MapField.emptyMapField(ParametersDefaultEntryHolder.defaultEntry);
+            }
+            return parameters_;
+        }
+
+        private com.google.protobuf.MapField<java.lang.String,java.lang.String> internalGetMutableParameters() {
+            onChanged();
+            ;
+            if (parameters_ == null) {
+                parameters_ = com.google.protobuf.MapField.newMapField(ParametersDefaultEntryHolder.defaultEntry);
+            }
+            if (!parameters_.isMutable()) {
+                parameters_ = parameters_.copy();
+            }
+            return parameters_;
+        }
+
+        public int getParametersCount() {
+            return internalGetParameters().getMap().size();
+        }
+
+        /**
+         * <pre>
+         * key-value pairs identifying the parameters for the message.
+         * </pre>
+         *
+         * <code>map&lt;string, string&gt; parameters = 50;</code>
+         */
+
+        @java.lang.Override
+        public boolean containsParameters(java.lang.String key) {
+            if (key == null) {
+                throw new java.lang.NullPointerException();
+            }
+            return internalGetParameters().getMap().containsKey(key);
+        }
+
+        /**
+         * Use {@link #getParametersMap()} instead.
+         */
+        @java.lang.Override
+        @java.lang.Deprecated
+        public java.util.Map<java.lang.String,java.lang.String> getParameters() {
+            return getParametersMap();
+        }
+
+        /**
+         * <pre>
+         * key-value pairs identifying the parameters for the message.
+         * </pre>
+         *
+         * <code>map&lt;string, string&gt; parameters = 50;</code>
+         */
+        @java.lang.Override
+
+        public java.util.Map<java.lang.String,java.lang.String> getParametersMap() {
+            return internalGetParameters().getMap();
+        }
+
+        /**
+         * <pre>
+         * key-value pairs identifying the parameters for the message.
+         * </pre>
+         *
+         * <code>map&lt;string, string&gt; parameters = 50;</code>
+         */
+        @java.lang.Override
+
+        public java.lang.String getParametersOrDefault(java.lang.String key, java.lang.String defaultValue) {
+            if (key == null) {
+                throw new java.lang.NullPointerException();
+            }
+            java.util.Map<java.lang.String,java.lang.String> map = internalGetParameters().getMap();
+            return map.containsKey(key) ? map.get(key) : defaultValue;
+        }
+
+        /**
+         * <pre>
+         * key-value pairs identifying the parameters for the message.
+         * </pre>
+         *
+         * <code>map&lt;string, string&gt; parameters = 50;</code>
+         */
+        @java.lang.Override
+
+        public java.lang.String getParametersOrThrow(java.lang.String key) {
+            if (key == null) {
+                throw new java.lang.NullPointerException();
+            }
+            java.util.Map<java.lang.String,java.lang.String> map = internalGetParameters().getMap();
+            if (!map.containsKey(key)) {
+                throw new java.lang.IllegalArgumentException();
+            }
+            return map.get(key);
+        }
+
+        public Builder clearParameters() {
+            internalGetMutableParameters().getMutableMap().clear();
+            return this;
+        }
+
+        /**
+         * <pre>
+         * key-value pairs identifying the parameters for the message.
+         * </pre>
+         *
+         * <code>map&lt;string, string&gt; parameters = 50;</code>
+         */
+
+        public Builder removeParameters(java.lang.String key) {
+            if (key == null) {
+                throw new java.lang.NullPointerException();
+            }
+            internalGetMutableParameters().getMutableMap().remove(key);
+            return this;
+        }
+
+        /**
+         * Use alternate mutation accessors instead.
+         */
+        @java.lang.Deprecated
+        public java.util.Map<java.lang.String,java.lang.String> getMutableParameters() {
+            return internalGetMutableParameters().getMutableMap();
+        }
+
+        /**
+         * <pre>
+         * key-value pairs identifying the parameters for the message.
+         * </pre>
+         *
+         * <code>map&lt;string, string&gt; parameters = 50;</code>
+         */
+        public Builder putParameters(java.lang.String key, java.lang.String value) {
+            if (key == null) {
+                throw new java.lang.NullPointerException();
+            }
+            if (value == null) {
+                throw new java.lang.NullPointerException();
+            }
+            internalGetMutableParameters().getMutableMap().put(key, value);
+            return this;
+        }
+
+        /**
+         * <pre>
+         * key-value pairs identifying the parameters for the message.
+         * </pre>
+         *
+         * <code>map&lt;string, string&gt; parameters = 50;</code>
+         */
+
+        public Builder putAllParameters(java.util.Map<java.lang.String,java.lang.String> values) {
+            internalGetMutableParameters().getMutableMap().putAll(values);
             return this;
         }
 

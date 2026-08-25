@@ -3,8 +3,8 @@ package datawave.microservice.annotation.common;
 import java.util.function.Supplier;
 
 import org.springframework.messaging.Message;
-import datawave.annotation.protobuf.v1.AnnotationMessage;
 
+import datawave.annotation.protobuf.v1.AnnotationMessage;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
 import reactor.core.scheduler.Schedulers;

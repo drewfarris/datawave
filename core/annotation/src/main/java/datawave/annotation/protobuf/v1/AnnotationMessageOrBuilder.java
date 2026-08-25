@@ -8,41 +8,144 @@ public interface AnnotationMessageOrBuilder extends
                 com.google.protobuf.MessageOrBuilder {
 
     /**
-     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     * <pre>
+     * the 128-bit hash for this message
+     * </pre>
+     *
+     * <code>string annotationMessageId = 1;</code>
+     *
+     * @return The annotationMessageId.
+     */
+    java.lang.String getAnnotationMessageId();
+
+    /**
+     * <pre>
+     * the 128-bit hash for this message
+     * </pre>
+     *
+     * <code>string annotationMessageId = 1;</code>
+     *
+     * @return The bytes for annotationMessageId.
+     */
+    com.google.protobuf.ByteString getAnnotationMessageIdBytes();
+
+    /**
+     * <pre>
+     * a list of one or more annotations we're sending
+     * </pre>
+     *
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
      */
     java.util.List<datawave.annotation.protobuf.v1.Annotation> getAnnotationsList();
 
     /**
-     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     * <pre>
+     * a list of one or more annotations we're sending
+     * </pre>
+     *
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
      */
     datawave.annotation.protobuf.v1.Annotation getAnnotations(int index);
 
     /**
-     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     * <pre>
+     * a list of one or more annotations we're sending
+     * </pre>
+     *
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
      */
     int getAnnotationsCount();
 
     /**
-     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     * <pre>
+     * a list of one or more annotations we're sending
+     * </pre>
+     *
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
      */
     java.util.List<? extends datawave.annotation.protobuf.v1.AnnotationOrBuilder> getAnnotationsOrBuilderList();
 
     /**
-     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 1;</code>
+     * <pre>
+     * a list of one or more annotations we're sending
+     * </pre>
+     *
+     * <code>repeated .datawave.annotation.protobuf.v1.Annotation annotations = 2;</code>
      */
     datawave.annotation.protobuf.v1.AnnotationOrBuilder getAnnotationsOrBuilder(int index);
 
     /**
-     * <code>string source = 2;</code>
+     * <pre>
+     * the source of the message.
+     * </pre>
+     *
+     * <code>string source = 3;</code>
      *
      * @return The source.
      */
     java.lang.String getSource();
 
     /**
-     * <code>string source = 2;</code>
+     * <pre>
+     * the source of the message.
+     * </pre>
+     *
+     * <code>string source = 3;</code>
      *
      * @return The bytes for source.
      */
     com.google.protobuf.ByteString getSourceBytes();
+
+    /**
+     * <pre>
+     * key-value pairs identifying the parameters for the message.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; parameters = 50;</code>
+     */
+    int getParametersCount();
+
+    /**
+     * <pre>
+     * key-value pairs identifying the parameters for the message.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; parameters = 50;</code>
+     */
+    boolean containsParameters(java.lang.String key);
+
+    /**
+     * Use {@link #getParametersMap()} instead.
+     */
+    @java.lang.Deprecated
+    java.util.Map<java.lang.String,java.lang.String> getParameters();
+
+    /**
+     * <pre>
+     * key-value pairs identifying the parameters for the message.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; parameters = 50;</code>
+     */
+    java.util.Map<java.lang.String,java.lang.String> getParametersMap();
+
+    /**
+     * <pre>
+     * key-value pairs identifying the parameters for the message.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; parameters = 50;</code>
+     */
+
+    java.lang.String getParametersOrDefault(java.lang.String key, java.lang.String defaultValue);
+
+    /**
+     * <pre>
+     * key-value pairs identifying the parameters for the message.
+     * </pre>
+     *
+     * <code>map&lt;string, string&gt; parameters = 50;</code>
+     */
+
+    java.lang.String getParametersOrThrow(java.lang.String key);
 }

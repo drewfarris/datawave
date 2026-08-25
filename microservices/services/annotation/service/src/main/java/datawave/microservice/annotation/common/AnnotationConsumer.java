@@ -19,7 +19,7 @@ public class AnnotationConsumer implements Consumer<AnnotationMessage> {
     @Override
     public void accept(AnnotationMessage annotationMessage) {
         try {
-            for (Annotation a: annotationMessage.getAnnotationsList()) {
+            for (Annotation a : annotationMessage.getAnnotationsList()) {
                 // consider whether we need an all-or-nothing operation here, possibly not
                 // because annotation writes should be idempotent.
                 annotationWriter.write(a);

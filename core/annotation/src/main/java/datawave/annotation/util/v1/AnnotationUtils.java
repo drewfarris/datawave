@@ -7,7 +7,6 @@ import java.util.Map;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
-import datawave.annotation.protobuf.v1.AnnotationMessage;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +17,7 @@ import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 
 import datawave.annotation.protobuf.v1.Annotation;
+import datawave.annotation.protobuf.v1.AnnotationMessage;
 import datawave.annotation.protobuf.v1.AnnotationSource;
 import datawave.annotation.protobuf.v1.Point;
 import datawave.annotation.protobuf.v1.Segment;
@@ -86,6 +86,18 @@ public class AnnotationUtils {
         }
         Segment segmentHashedValues = segment.toBuilder().clearValues().addAllValues(updatedSegmentValues).build();
         return AnnotationUtils.injectSegmentHash(segmentHashedValues);
+    }
+
+    /**
+     * CUtility method to generate and ingest annotation message hashes into the annotation message.
+     *
+     * @param annotationMessage
+     *            the annotation message to assign identifiers to.
+     * @return the modified annotation message with identifiers injected.
+     */
+    public static AnnotationMessage injectAnnotationMessageHash(AnnotationMessage annotationMessage) {
+        final String annotationMessageHash = calculateAnnotationMessageHash(annotationMessage);
+        return annotationMessage.toBuilder().setAnnotationMessageId(annotationMessageHash).build();
     }
 
     /**
@@ -179,30 +191,32 @@ public class AnnotationUtils {
     }
 
     /**
-     * Calculate the 32-bit murmur3 hash used to identify an annotation, this includes the following attributes:
+     * Calculate the 128-bit murmur3 hash used to identify an annotation message, this includes the following attributes:
      * <ul>
-     * <li>the annotation type</li>
-     * <li>the hash for each segment</li>
-     * <li>each key and value in the metadata</li>
+     * <li>the annotation message source</li>
+     * <li>the hash for each annotation</li>
+     * <li>each key and value in the parameter map</li>
      * </ul>
      *
-     * @param annotation
-     *            the annotation to hash.
+     * @param annotationMessage
+     *            the annotation message to hash.
      * @return the calculated hash.
      */
     @SuppressWarnings("UnstableApiUsage")
-    public static String calculateAnnotationMessageHash(AnnotationMessage annotation) {
-        Hasher hasher = Hashing.murmur3_32_fixed().newHasher();
-        hasher.putString(annotation.getAnnotationType(), StandardCharsets.UTF_8);
-        for (Segment s : annotation.getSegmentsList()) {
-            hasher.putString(calculateSegmentHash(s), StandardCharsets.UTF_8);
+    public static String calculateAnnotationMessageHash(AnnotationMessage annotationMessage) {
+        Hasher hasher = Hashing.murmur3_128().newHasher();
+        hasher.putString(annotationMessage.getSource(), StandardCharsets.UTF_8);
+        for (Annotation a : annotationMessage.getAnnotationsList()) {
+            // if the annotations have id's assigned, use them instead of recalculating.
+            String idHash = a.getAnnotationId().isBlank() ? calculateAnnotationHash(a) : a.getAnnotationId();
+            hasher.putString(idHash, StandardCharsets.UTF_8);
         }
         // maps must be hashed in a consistent order (by key)
-        final Map<String,String> metadataMap = annotation.getMetadataMap();
-        final SortedSet<String> sortedKeySet = new TreeSet<>(metadataMap.keySet());
+        final Map<String,String> prarametersMap = annotationMessage.getParametersMap();
+        final SortedSet<String> sortedKeySet = new TreeSet<>(prarametersMap.keySet());
         for (String key : sortedKeySet) {
             hasher.putString(key, StandardCharsets.UTF_8);
-            hasher.putString(metadataMap.get(key), StandardCharsets.UTF_8);
+            hasher.putString(prarametersMap.get(key), StandardCharsets.UTF_8);
         }
         return hasher.hash().toString().toUpperCase();
     }

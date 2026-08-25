@@ -520,24 +520,27 @@ public class AnnotationControllerV1 {
     }
 
     private Optional<Annotation> sendMessage(AnnotationMessage annotationMessage) {
-        String annotationId = AnnotationMessageUtils.generateId(annotationMessage);
+        if (annotationMessage.getAnnotationMessageId().isBlank()) {
+            AnnotationUtils.injectAnnotationMessageHash(annotationMessage);
+        }
+        String annotationMessageId = annotationMessage.getAnnotationMessageId();
 
         boolean success;
         if (annotationProperties.isAnnotationAckEnabled()) {
             final CountDownLatch latch = new CountDownLatch(1);
-            correlationLatchMap.put(annotationId, latch);
+            correlationLatchMap.put(annotationMessageId, latch);
 
-            success = annotationSource.send(MessageBuilder.withPayload(annotationMessage).setCorrelationId(annotationId).build());
+            success = annotationSource.send(MessageBuilder.withPayload(annotationMessage).setCorrelationId(annotationMessageId).build());
 
             try {
                 success = success && latch.await(annotationProperties.getAnnotationAckTimeoutMillis(), TimeUnit.MILLISECONDS);
             } catch (InterruptedException e) {
                 success = false;
             } finally {
-                correlationLatchMap.remove(annotationId);
+                correlationLatchMap.remove(annotationMessageId);
             }
         } else {
-            success = annotationSource.send(MessageBuilder.withPayload(annotationMessage).setCorrelationId(annotationId).build());
+            success = annotationSource.send(MessageBuilder.withPayload(annotationMessage).setCorrelationId(annotationMessageId).build());
         }
 
         return success ? Optional.of(annotationMessage.getAnnotationsList().get(0)) : Optional.empty();
