@@ -470,13 +470,6 @@ public class AnnotationControllerV1 {
 
         AnnotationProperties.Retry retry = annotationProperties.getRetry();
 
-        //@formatter:off
-        AnnotationMessage annotationMessage = AnnotationMessage.newBuilder()
-                .addAnnotations(identifiedAnnotation)
-                .setSource(annotationProperties.getSystemFrom())
-                .build();
-        //@formatter:on
-
         do {
             if (attempts++ > 0) {
                 try {
@@ -491,7 +484,7 @@ public class AnnotationControllerV1 {
                 log.debug("[{}] Annotation write attempt {} of {}", identifiedAnnotation.getAnnotationId(), attempts, retry.getMaxAttempts());
             }
 
-            result = sendMessage(annotationMessage);
+            result = sendAnnotation(identifiedAnnotation);
             currentTime = System.currentTimeMillis();
         } while (result.isEmpty() && retry.noTimeout(writeStartTime, currentTime) && retry.hasAttemptsRemaining(attempts));
 
@@ -519,18 +512,50 @@ public class AnnotationControllerV1 {
         return result;
     }
 
-    private Optional<Annotation> sendMessage(AnnotationMessage annotationMessage) {
-        if (annotationMessage.getAnnotationMessageId().isBlank()) {
-            AnnotationUtils.injectAnnotationMessageHash(annotationMessage);
+    /**
+     * Adapter between writeAnnotation(Annotation) and sendAnnotationMessage that manages the fact that messages send an received by this contoller only send a
+     * single Annogation at a time
+     *
+     * @param annotation
+     *            the annotation to send
+     * @return an Optional containing the annotation that was sent, possibly empty
+     */
+    private Optional<Annotation> sendAnnotation(Annotation annotation) {
+        //@formatter:off
+        AnnotationMessage annotationMessage = AnnotationMessage.newBuilder()
+                .addAnnotations(annotation)
+                .setSource(annotationProperties.getSystemFrom())
+                .build();
+        //@formatter:on
+
+        Optional<AnnotationMessage> result = sendAnnotationMessage(annotationMessage);
+
+        if (result.isEmpty()) {
+            return Optional.empty();
         }
-        String annotationMessageId = annotationMessage.getAnnotationMessageId();
+
+        AnnotationMessage resultMessage = result.get();
+        List<Annotation> annotationList = resultMessage.getAnnotationsList();
+        if (annotationList.isEmpty()) {
+            return Optional.empty();
+        } else if (annotationList.size() > 1) {
+            log.warn("Unexpeced annotation list size in AnnotatioMessage id {}: {}", resultMessage.getAnnotationMessageId(), annotationList.size());
+        }
+        return Optional.of(annotationList.get(0));
+    }
+
+    private Optional<AnnotationMessage> sendAnnotationMessage(AnnotationMessage annotationMessage) {
+        AnnotationMessage identifiedMessage = annotationMessage.getAnnotationMessageId().isBlank()
+                        ? AnnotationUtils.injectAnnotationMessageHash(annotationMessage)
+                        : annotationMessage;
+        String annotationMessageId = identifiedMessage.getAnnotationMessageId();
 
         boolean success;
         if (annotationProperties.isAnnotationAckEnabled()) {
             final CountDownLatch latch = new CountDownLatch(1);
             correlationLatchMap.put(annotationMessageId, latch);
 
-            success = annotationSource.send(MessageBuilder.withPayload(annotationMessage).setCorrelationId(annotationMessageId).build());
+            success = annotationSource.send(MessageBuilder.withPayload(identifiedMessage).setCorrelationId(annotationMessageId).build());
 
             try {
                 success = success && latch.await(annotationProperties.getAnnotationAckTimeoutMillis(), TimeUnit.MILLISECONDS);
@@ -540,10 +565,10 @@ public class AnnotationControllerV1 {
                 correlationLatchMap.remove(annotationMessageId);
             }
         } else {
-            success = annotationSource.send(MessageBuilder.withPayload(annotationMessage).setCorrelationId(annotationMessageId).build());
+            success = annotationSource.send(MessageBuilder.withPayload(identifiedMessage).setCorrelationId(annotationMessageId).build());
         }
 
-        return success ? Optional.of(annotationMessage.getAnnotationsList().get(0)) : Optional.empty();
+        return success ? Optional.of(identifiedMessage) : Optional.empty();
     }
 
     /**

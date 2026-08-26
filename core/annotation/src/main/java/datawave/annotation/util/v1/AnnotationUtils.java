@@ -89,7 +89,7 @@ public class AnnotationUtils {
     }
 
     /**
-     * CUtility method to generate and ingest annotation message hashes into the annotation message.
+     * Utility method to generate and ingest annotation message hashes into the annotation message.
      *
      * @param annotationMessage
      *            the annotation message to assign identifiers to.
@@ -212,11 +212,11 @@ public class AnnotationUtils {
             hasher.putString(idHash, StandardCharsets.UTF_8);
         }
         // maps must be hashed in a consistent order (by key)
-        final Map<String,String> prarametersMap = annotationMessage.getParametersMap();
-        final SortedSet<String> sortedKeySet = new TreeSet<>(prarametersMap.keySet());
+        final Map<String,String> parametersMap = annotationMessage.getParametersMap();
+        final SortedSet<String> sortedKeySet = new TreeSet<>(parametersMap.keySet());
         for (String key : sortedKeySet) {
             hasher.putString(key, StandardCharsets.UTF_8);
-            hasher.putString(prarametersMap.get(key), StandardCharsets.UTF_8);
+            hasher.putString(parametersMap.get(key), StandardCharsets.UTF_8);
         }
         return hasher.hash().toString().toUpperCase();
     }
