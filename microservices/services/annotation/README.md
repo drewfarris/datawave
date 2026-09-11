@@ -1,5 +1,7 @@
 ## Annotation Service
 
+[![Apache License][li]][ll]
+
 The annotation service is a DATAWAVE microservice that provides annotation storage, retrieval,
 and update capabilities for the DATAWAVE ecosystem. The service supports federated reads across
 both `annotation` and `truthmark` table pairs, source-metadata masking, and an asynchronous
@@ -149,3 +151,6 @@ production deployment.
 [segmentHash]:service/src/main/java/datawave/microservice/annotation/service/AnnotationControllerV1.java
 [annotationType]:service/src/main/java/datawave/microservice/annotation/service/AnnotationControllerV1.java
 [annotation]:service/src/main/java/datawave/microservice/annotation/service/AnnotationControllerV1.java
+
+[li]: http://img.shields.io/badge/license-ASL-blue.svg
+[ll]: https://www.apache.org/licenses/LICENSE-2.0
