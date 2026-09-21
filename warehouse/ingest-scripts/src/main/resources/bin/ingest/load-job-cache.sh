@@ -64,23 +64,41 @@ echo New job cache dir is $JOB_CACHE_DIR
 BEFORE=$(basename $OLD_JOB_CACHE_DIR)
 AFTER=$(basename $JOB_CACHE_DIR)
 
-sed "s%${BEFORE}%${AFTER}%" "$THIS_DIR/job-cache-env.sh" > "$THIS_DIR/job-cache-env.tmp"
+if ! sed "s%${BEFORE}%${AFTER}%" "$THIS_DIR/job-cache-env.sh" > "$THIS_DIR/job-cache-env.tmp" ||
+    [[ ! -s "$THIS_DIR/job-cache-env.tmp" ]]; then
+    echo "[ERROR] Unable to prepare the job-cache environment for $JOB_CACHE_DIR"
+    rm -f "$THIS_DIR/job-cache-env.tmp"
+    exit 1
+fi
 
 . "$THIS_DIR/ingest-libs.sh"
 
 date
 
 # prepare a directory with links to all of the files/directories to put into the jobcache
-tmpdir=$(mktemp -d $MKTEMP_OPTS)
-trap 'rm -r -f "$tmpdir"; exit $?' INT TERM EXIT
-for f in ${CLASSPATH//:/ }; do
-    if [ -e $f ]; then
+tmpdir=$(mktemp -d $MKTEMP_OPTS) || {
+    echo "[ERROR] Unable to create a temporary directory for the job cache"
+    rm -f "$THIS_DIR/job-cache-env.tmp"
+    exit 1
+}
+cleanup()
+{
+    local status=$?
+    rm -r -f "$tmpdir"
+    [[ "$status" != 0 ]] && rm -f "$THIS_DIR/job-cache-env.tmp"
+    exit "$status"
+}
+trap cleanup INT TERM EXIT
+
+for f in ${DISTRIBUTED_CACHE_JARS//,/ }; do
+    if [[ -e "$f" ]]; then
         fname=${f/*\//}
         # determine the actual path
-        f=$(eval $READLINK_CMD $f)
-        ln -s $f $tmpdir/$fname
+        f=$(eval "$READLINK_CMD \"\$f\"")
+        ln -s "$f" "$tmpdir/$fname"
     else
-        echo "*** WARNING: The classpath points to a location that does not exist: $f ***"
+        echo "[ERROR] Distributed-cache entry does not exist: $f"
+        exit 1
     fi
 done
 
@@ -93,58 +111,130 @@ fi
 # lets use twice the number of processors
 CPUS=$(echo "$LOAD_JOBCACHE_CPU_MULTIPLIER * $CPUS" | bc)
 
-# Remove the ingest new job cache directory, if it already exists, and then load files into it...
+remove_candidate()
+{
+    local hadoop_home=$1
+    local hadoop_conf=$2
+    local name_node=$3
 
-if $INGEST_HADOOP_HOME/bin/hadoop fs -conf $INGEST_HADOOP_CONF/hdfs-site.xml -fs $INGEST_HDFS_NAME_NODE -test -d $INGEST_HDFS_NAME_NODE$JOB_CACHE_DIR > /dev/null 2>&1 ; then
-   echo "Replacing ingest job cache directory: $INGEST_HDFS_NAME_NODE$JOB_CACHE_DIR"
-   $INGEST_HADOOP_HOME/bin/hadoop fs -conf $INGEST_HADOOP_CONF/hdfs-site.xml -fs $INGEST_HDFS_NAME_NODE -rm -r $INGEST_HDFS_NAME_NODE$JOB_CACHE_DIR
-else
-   echo "Creating ingest job cache directory: $INGEST_HDFS_NAME_NODE$JOB_CACHE_DIR"
+    "$hadoop_home/bin/hadoop" fs \
+        -conf "$hadoop_conf/hdfs-site.xml" \
+        -fs "$name_node" \
+        -rm -r "${name_node}${JOB_CACHE_DIR}"
+}
+
+load_candidate()
+{
+    local cluster_name=$1
+    local hadoop_home=$2
+    local hadoop_conf=$3
+    local name_node=$4
+    local candidate_uri="${name_node}${JOB_CACHE_DIR}"
+
+    if "$hadoop_home/bin/hadoop" fs \
+        -conf "$hadoop_conf/hdfs-site.xml" \
+        -fs "$name_node" \
+        -test -d "$candidate_uri" > /dev/null 2>&1; then
+        echo "Replacing $cluster_name job cache candidate: $candidate_uri"
+        remove_candidate "$hadoop_home" "$hadoop_conf" "$name_node" || return 1
+    else
+        echo "Creating $cluster_name job cache candidate: $candidate_uri"
+    fi
+
+    # copyFromLocal needs the parent directory chain to exist.
+    "$hadoop_home/bin/hadoop" fs \
+        -conf "$hadoop_conf/hdfs-site.xml" \
+        -fs "$name_node" \
+        -mkdir -p "${name_node}${JOB_CACHE_DIR}/.." || return 1
+    "$hadoop_home/bin/hadoop" fs \
+        -conf "$hadoop_conf/hdfs-site.xml" \
+        -fs "$name_node" \
+        -copyFromLocal -t "$CPUS" "$tmpdir" "$candidate_uri" || return 1
+
+    if [[ "$name_node" == "hdfs://"* ]]; then
+        "$hadoop_home/bin/hadoop" fs \
+            -conf "$hadoop_conf/hdfs-site.xml" \
+            -setrep -R "$JOB_CACHE_REPLICATION" "$candidate_uri" || return 1
+    fi
+}
+
+validate_candidate()
+{
+    local hadoop_home=$1
+    local hadoop_conf=$2
+    local name_node=$3
+
+    JOB_CACHE_DIR_OVERRIDE="$JOB_CACHE_DIR" \
+    JOB_CACHE_HADOOP_HOME_OVERRIDE="$hadoop_home" \
+    JOB_CACHE_HADOOP_CONF_OVERRIDE="$hadoop_conf" \
+    JOB_CACHE_HDFS_NAME_NODE_OVERRIDE="$name_node" \
+        "$THIS_DIR/check-job-cache.sh"
+}
+
+if ! load_candidate "ingest" "$INGEST_HADOOP_HOME" "$INGEST_HADOOP_CONF" "$INGEST_HDFS_NAME_NODE"; then
+    echo "[ERROR] Failed to load ingest job cache candidate: ${INGEST_HDFS_NAME_NODE}${JOB_CACHE_DIR}"
+    remove_candidate "$INGEST_HADOOP_HOME" "$INGEST_HADOOP_CONF" "$INGEST_HDFS_NAME_NODE" > /dev/null 2>&1
+    exit 1
 fi
-# copyFromLocal needs the parent directory chain to exist, so ensure that is in place before doing a multi-threaded copyFromLocal
-$INGEST_HADOOP_HOME/bin/hadoop fs -conf $INGEST_HADOOP_CONF/hdfs-site.xml -fs $INGEST_HDFS_NAME_NODE -mkdir -p $INGEST_HDFS_NAME_NODE${JOB_CACHE_DIR}/..
-$INGEST_HADOOP_HOME/bin/hadoop fs -conf $INGEST_HADOOP_CONF/hdfs-site.xml -fs $INGEST_HDFS_NAME_NODE -copyFromLocal -t $CPUS ${tmpdir} $INGEST_HDFS_NAME_NODE${JOB_CACHE_DIR}
-# Only do setrep for an hdfs filesystem. Others, such as local or abfs, don't support or need the replication to be set.
-[[ "$INGEST_HDFS_NAME_NODE" == "hdfs://"* ]] && $INGEST_HADOOP_HOME/bin/hadoop fs -conf $INGEST_HADOOP_CONF/hdfs-site.xml -setrep -R ${JOB_CACHE_REPLICATION} $INGEST_HDFS_NAME_NODE${JOB_CACHE_DIR}
+if ! validate_candidate "$INGEST_HADOOP_HOME" "$INGEST_HADOOP_CONF" "$INGEST_HDFS_NAME_NODE"; then
+    echo "[ERROR] Ingest job cache candidate failed validation: ${INGEST_HDFS_NAME_NODE}${JOB_CACHE_DIR}"
+    remove_candidate "$INGEST_HADOOP_HOME" "$INGEST_HADOOP_CONF" "$INGEST_HDFS_NAME_NODE" > /dev/null 2>&1
+    exit 1
+fi
 
 ########### We need this section to allow running the map file merger on the warehouse cluster ##########
 if [[ "$WAREHOUSE_HDFS_NAME_NODE" != "$INGEST_HDFS_NAME_NODE" ]]; then
-   if $WAREHOUSE_HADOOP_HOME/bin/hadoop fs -conf $WAREHOUSE_HADOOP_CONF/hdfs-site.xml -fs $WAREHOUSE_HDFS_NAME_NODE -test -d $WAREHOUSE_HDFS_NAME_NODE$JOB_CACHE_DIR > /dev/null 2>&1 ; then
-      echo "Replacing warehouse job cache directory: $WAREHOUSE_HDFS_NAME_NODE$JOB_CACHE_DIR"
-      $WAREHOUSE_HADOOP_HOME/bin/hadoop fs -conf $WAREHOUSE_HADOOP_CONF/hdfs-site.xml -fs $WAREHOUSE_HDFS_NAME_NODE -rm -r $WAREHOUSE_HDFS_NAME_NODE$JOB_CACHE_DIR
-   else
-      echo "Creating warehouse job cache directory: $WAREHOUSE_HDFS_NAME_NODE$JOB_CACHE_DIR"
-   fi
-   # copyFromLocal needs the parent directory chain to exist, so ensure that is in place before doing a multi-threaded copyFromLocal
-   $WAREHOUSE_HADOOP_HOME/bin/hadoop fs -conf $WAREHOUSE_HADOOP_CONF/hdfs-site.xml -fs $WAREHOUSE_HDFS_NAME_NODE -mkdir -p $WAREHOUSE_HDFS_NAME_NODE${JOB_CACHE_DIR}/..
-   $WAREHOUSE_HADOOP_HOME/bin/hadoop fs -conf $WAREHOUSE_HADOOP_CONF/hdfs-site.xml -fs $WAREHOUSE_HDFS_NAME_NODE -copyFromLocal -t $CPUS ${tmpdir} $WAREHOUSE_HDFS_NAME_NODE${JOB_CACHE_DIR}
-   # Only do setrep for an hdfs filesystem. Others, such as local or abfs, don't support or need the replication to be set.
-   [[ "$WAREHOUSE_HDFS_NAME_NODE" == "hdfs://"* ]] && $WAREHOUSE_HADOOP_HOME/bin/hadoop fs -conf $WAREHOUSE_HADOOP_CONF/hdfs-site.xml -setrep -R ${JOB_CACHE_REPLICATION} $WAREHOUSE_HDFS_NAME_NODE${JOB_CACHE_DIR}
+    if ! load_candidate "warehouse" "$WAREHOUSE_HADOOP_HOME" "$WAREHOUSE_HADOOP_CONF" "$WAREHOUSE_HDFS_NAME_NODE"; then
+        echo "[ERROR] Failed to load warehouse job cache candidate: ${WAREHOUSE_HDFS_NAME_NODE}${JOB_CACHE_DIR}"
+        remove_candidate "$WAREHOUSE_HADOOP_HOME" "$WAREHOUSE_HADOOP_CONF" "$WAREHOUSE_HDFS_NAME_NODE" > /dev/null 2>&1
+        remove_candidate "$INGEST_HADOOP_HOME" "$INGEST_HADOOP_CONF" "$INGEST_HDFS_NAME_NODE" > /dev/null 2>&1
+        exit 1
+    fi
+    if ! validate_candidate "$WAREHOUSE_HADOOP_HOME" "$WAREHOUSE_HADOOP_CONF" "$WAREHOUSE_HDFS_NAME_NODE"; then
+        echo "[ERROR] Warehouse job cache candidate failed validation: ${WAREHOUSE_HDFS_NAME_NODE}${JOB_CACHE_DIR}"
+        remove_candidate "$WAREHOUSE_HADOOP_HOME" "$WAREHOUSE_HADOOP_CONF" "$WAREHOUSE_HDFS_NAME_NODE" > /dev/null 2>&1
+        remove_candidate "$INGEST_HADOOP_HOME" "$INGEST_HADOOP_CONF" "$INGEST_HDFS_NAME_NODE" > /dev/null 2>&1
+        exit 1
+    fi
 else
-   echo "Warehouse and ingest are one in the same. Assuming the warehouse job cache loading is sufficient"
+    echo "Warehouse and ingest are one in the same. The validated ingest candidate will serve both."
 fi
 
-# Update Zookeeper if we have an active job cache path
+# Prepare the rollback copy before publishing the candidate.
+if ! cp "$THIS_DIR/job-cache-env.sh" "$THIS_DIR/job-cache-env.bak"; then
+    echo "[ERROR] Unable to back up $THIS_DIR/job-cache-env.sh"
+    exit 1
+fi
+
+# Publish only after every candidate has passed validation.
 if [[ -n "${ACTIVE_JOB_CACHE_PATH}" ]]; then
-  if ! java -cp ${CLASSPATH} datawave.ingest.jobcache.SetActiveCommand \
-    --zookeepers ${INGEST_ZOOKEEPERS} \
-    --path ${ACTIVE_JOB_CACHE_PATH} \
+  if ! java -cp "${CLASSPATH}" datawave.ingest.jobcache.SetActiveCommand \
+    --zookeepers "${INGEST_ZOOKEEPERS}" \
+    --path "${ACTIVE_JOB_CACHE_PATH}" \
     --job-cache "${INGEST_HDFS_NAME_NODE}${JOB_CACHE_DIR}"; then
       echo "[ERROR] Failed to set active ingest job cache"
+      exit 1
   fi
 
   if [[ "$WAREHOUSE_HDFS_NAME_NODE" != "$INGEST_HDFS_NAME_NODE" ]]; then
-    if ! java -cp ${CLASSPATH} datawave.ingest.jobcache.SetActiveCommand \
-      --zookeepers ${WAREHOUSE_ZOOKEEPERS} \
-      --path ${ACTIVE_JOB_CACHE_PATH} \
+    if ! java -cp "${CLASSPATH}" datawave.ingest.jobcache.SetActiveCommand \
+      --zookeepers "${WAREHOUSE_ZOOKEEPERS}" \
+      --path "${ACTIVE_JOB_CACHE_PATH}" \
       --job-cache "${WAREHOUSE_HDFS_NAME_NODE}${JOB_CACHE_DIR}"; then
         echo "[ERROR] Failed to set active warehouse job cache"
+        if ! java -cp "${CLASSPATH}" datawave.ingest.jobcache.SetActiveCommand \
+          --zookeepers "${INGEST_ZOOKEEPERS}" \
+          --path "${ACTIVE_JOB_CACHE_PATH}" \
+          --job-cache "${INGEST_HDFS_NAME_NODE}${OLD_JOB_CACHE_DIR}"; then
+            echo "[ERROR] Failed to roll back the active ingest job cache to ${INGEST_HDFS_NAME_NODE}${OLD_JOB_CACHE_DIR}"
+        fi
+        exit 1
     fi
   fi
 fi
 
 # Remove the prepared directory
-rm -r -f $tmpdir
+rm -r -f "$tmpdir"
 trap - INT TERM EXIT
 date
 
@@ -154,5 +244,7 @@ date
 # If we made it here, everything is loaded into the new job cache
 # directory.  So, just swap the the environment script with the new
 # one that will tell jobs to run with the new job cache dir.
-cp "$THIS_DIR/job-cache-env.sh" "$THIS_DIR/job-cache-env.bak"
-mv "$THIS_DIR/job-cache-env.tmp" "$THIS_DIR/job-cache-env.sh"
+if ! mv "$THIS_DIR/job-cache-env.tmp" "$THIS_DIR/job-cache-env.sh"; then
+    echo "[ERROR] Unable to activate $JOB_CACHE_DIR in $THIS_DIR/job-cache-env.sh"
+    exit 1
+fi
