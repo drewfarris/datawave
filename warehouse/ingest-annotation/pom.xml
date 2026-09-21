@@ -112,6 +112,18 @@
         </dependency>
     </dependencies>
     <build>
+        <testResources>
+            <testResource>
+                <directory>src/test/resources</directory>
+            </testResource>
+            <testResource>
+                <directory>../../core/annotation/src/test/resources</directory>
+                <includes>
+                    <include>annotation_baseline.json</include>
+                    <include>annotation_baseline.ndjson</include>
+                </includes>
+            </testResource>
+        </testResources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

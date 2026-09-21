@@ -1,11 +1,14 @@
 package datawave.ingest.annotation.mapreduce.input;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.File;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -35,7 +38,15 @@ public class SimpleAnnotationRecordReaderTest {
         TypeRegistry.reset();
         TypeRegistry.getInstance(conf);
 
-        dataFile = new File(data.toURI());
+        if ("file".equals(data.getProtocol())) {
+            dataFile = new File(data.toURI());
+        } else {
+            dataFile = Files.createTempFile("annotation-record-reader-", ".json").toFile();
+            dataFile.deleteOnExit();
+            try (var input = data.openStream()) {
+                Files.copy(input, dataFile.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
+        }
         Path p = new Path(dataFile.toURI().toString());
         split = new FileSplit(p, 0, dataFile.length(), null);
         ctx = new TaskAttemptContextImpl(conf, new TaskAttemptID());
@@ -61,5 +72,18 @@ public class SimpleAnnotationRecordReaderTest {
         assertTrue(sarr.nextKeyValue());
         assertNotNull(sarr.getEvent().getRawData());
         assertFalse(sarr.nextKeyValue());
+    }
+
+    @Test
+    public void testFullAnnotationBaselineNdJson() throws Exception {
+        SimpleAnnotationRecordReader reader = init("/annotation_baseline.ndjson");
+        int recordCount = 0;
+
+        while (reader.nextKeyValue()) {
+            assertNotNull(reader.getEvent().getRawData());
+            recordCount++;
+        }
+
+        assertEquals(36, recordCount);
     }
 }
