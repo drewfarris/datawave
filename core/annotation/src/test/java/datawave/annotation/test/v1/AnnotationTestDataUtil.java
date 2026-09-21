@@ -5,7 +5,6 @@ import static datawave.annotation.protobuf.v1.BoundaryType.POINTS;
 import static datawave.annotation.protobuf.v1.BoundaryType.TEXT_CHAR;
 import static datawave.annotation.protobuf.v1.BoundaryType.TIME_MILLI;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -18,7 +17,6 @@ import datawave.annotation.protobuf.v1.Segment;
 import datawave.annotation.protobuf.v1.SegmentBoundary;
 import datawave.annotation.protobuf.v1.SegmentValue;
 import datawave.annotation.util.v1.AnnotationUtils;
-import datawave.data.hash.HashUID;
 
 /**
  * Various utility methods to generating test data. Generally the items created by utilities will not have identifiers injected so that they can be used to test
@@ -87,43 +85,55 @@ public class AnnotationTestDataUtil {
     public static List<Annotation> generateManyTestAnnotations() {
         List<Annotation> testAnnotations = new ArrayList<>();
 
-        final String[] dataTypes = {"audio", "news", "cars", "media"};
         final String[] annotationTypes = {"tts", "tokens", "object", "image"};
-        final String[] days = {"20250405", "20250406", "20250407"};
-        final String[] shards = {"123", "456", "789"};
+        final EventReference[] eventReferences = {new EventReference("20130305_0", "enwiki", "shrgxu.x5rq5c.i3zexf"),
+                new EventReference("20130305_0", "enwiki", "ibrtlu.qead3h.uz468c"), new EventReference("20250520_0", "dewiki", "-54aixo.k9pi3k.-fy30hf"),
+                new EventReference("20250520_0", "dewiki", "kjxrup.gffwov.-sc1dcc"), new EventReference("20250520_0", "dewiki", "-yf39pt.fnsjk2.-c43q53"),
+                new EventReference("20250520_0", "dewiki", "17wrdq.-azo85f.-w53xnp"), new EventReference("20250520_0", "dewiki", "-ltt8v2.-nmiz9z.-1vlors"),
+                new EventReference("20250520_0", "eswiki", "lhaaph.-ld8sut.-yvw7r3"), new EventReference("20250520_0", "eswiki", "-ounwyg.-8dyou.-sq67x2"),
+                new EventReference("20250520_0", "eswiki", "c3yao7.sdnsiw.-4nj1dq"), new EventReference("20250520_0", "eswiki", "9rytnl.nrnnhp.drlzp8"),
+                new EventReference("20250520_0", "eswiki", "-8f46k2.-oi7pxl.iyt8va"), new EventReference("20250520_0", "eswiki", "9fw9d5.rlyjyn.urm0b9"),
+                new EventReference("20250520_0", "eswiki", "-dsd7yq.khywox.nwewdq"), new EventReference("20250520_0", "frwiki", "sdnsxy.-p5rzxf.q66he6"),
+                new EventReference("20250520_0", "frwiki", "-k9dr2z.-oskqjk.-b4ycxv"), new EventReference("20250520_0", "frwiki", "-bsep5q.hc13m7.qzpkyw"),
+                new EventReference("20250520_0", "frwiki", "-9z02vc.-8s2x80.9zdl1a"), new EventReference("20250520_0", "frwiki", "um0ap3.-7cx9t4.-g8t81d")};
 
         AnnotationSource baseAnnotationSource = generateTestAnnotationSource();
         AnnotationSource annotationSource = AnnotationUtils.injectAnnotationSourceHashes(baseAnnotationSource);
 
         int documentId = 0;
 
-        for (String day : days) {
-            for (String shard : shards) {
-                String row = day + "_" + shard;
-                for (int i = 0; i < dataTypes.length; i++) {
-                    String dataType = dataTypes[i];
-                    String annotationType = annotationTypes[i];
-                    String seed = row + "_" + dataType;
-                    String documentUid = HashUID.builder().newId(seed.getBytes(StandardCharsets.UTF_8)).toString();
+        for (int i = 0; i < 36; i++) {
+            EventReference eventReference = eventReferences[i % eventReferences.length];
+            int segmentType = i % annotationTypes.length;
 
-                    //@formatter:off
-                    Annotation annotation = Annotation.newBuilder()
-                            .setShard(row)
-                            .setDataType(dataTypes[i])
-                            .setUid(documentUid)
-                            .setDocumentId(String.format("%012d", ++documentId))
-                            .setAnalyticSourceHash(annotationSource.getAnalyticSourceHash())
-                            .setSource(annotationSource)
-                            .addAllSegments(generateTestSegments(day, shard, dataType))
-                            .putAllMetadata(generateTestMetadata(day, shard, dataType))
-                            .setAnnotationType(annotationType).build();
-                    testAnnotations.add(annotation);
-                    //@formatter:on
-                }
-            }
+            //@formatter:off
+            Annotation annotation = Annotation.newBuilder()
+                    .setShard(eventReference.shard)
+                    .setDataType(eventReference.dataType)
+                    .setUid(eventReference.uid)
+                    .setDocumentId(String.format("%012d", ++documentId))
+                    .setAnalyticSourceHash(annotationSource.getAnalyticSourceHash())
+                    .setSource(annotationSource)
+                    .addAllSegments(generateTestSegments(eventReference.shard, eventReference.dataType, segmentType))
+                    .putAllMetadata(generateTestMetadata(eventReference.shard.substring(0, 8), eventReference.shard, eventReference.dataType))
+                    .setAnnotationType(annotationTypes[segmentType]).build();
+            testAnnotations.add(annotation);
+            //@formatter:on
         }
 
         return testAnnotations;
+    }
+
+    private static class EventReference {
+        private final String shard;
+        private final String dataType;
+        private final String uid;
+
+        private EventReference(String shard, String dataType, String uid) {
+            this.shard = shard;
+            this.dataType = dataType;
+            this.uid = uid;
+        }
     }
 
     public static List<AnnotationSource> generateManyTestAnnotationSources() {
@@ -165,16 +175,16 @@ public class AnnotationTestDataUtil {
         return testAnnotationSources;
     }
 
-    public static List<Segment> generateTestSegments(String day, String shard, String datatype) {
-        switch (datatype) {
-            case "audio": // an imaginary audio (temporal) dataset
-                return generateAudioSegments(day, shard);
-            case "news": // an imaginary text dataset
-                return generateTextSegments(day, shard);
-            case "cars": // an imaginary image dataset
-                return generateImageBoxSegments(day, shard);
-            case "media":
-                return generateImageAllSegments(day, shard);
+    public static List<Segment> generateTestSegments(String shard, String datatype, int segmentType) {
+        switch (segmentType) {
+            case 0:
+                return generateAudioSegments(shard, datatype);
+            case 1:
+                return generateTextSegments(shard, datatype);
+            case 2:
+                return generateImageBoxSegments(shard, datatype);
+            case 3:
+                return generateImageAllSegments(shard, datatype);
             default:
                 return List.of(generateMultiTestSegment());
         }

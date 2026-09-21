@@ -240,6 +240,23 @@ public class AnnotationHelperTest {
     }
 
     @Test
+    public void testResolveReferencedEventDatatypeAlias() {
+        conf.set(AnnotationHelper.ANNOTATION_REFERENCED_EVENT_DATATYPE_ALIASES, "enwiki:testDataType");
+        annotationHelper = new AnnotationHelper(conf);
+
+        assertEquals("enwiki", annotationHelper.resolveReferencedEventDatatype("enwiki"));
+    }
+
+    @Test
+    public void testRejectReferencedEventDatatypeAliasWithUnknownTarget() {
+        conf.set(AnnotationHelper.ANNOTATION_REFERENCED_EVENT_DATATYPE_ALIASES, "enwiki:wikipedia");
+        annotationHelper = new AnnotationHelper(conf);
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () -> annotationHelper.resolveReferencedEventDatatype("enwiki"));
+        assertTrue(exception.getMessage().contains("wikipedia"));
+    }
+
+    @Test
     public void testTransformJson() throws SaxonApiException, IOException {
         // transformation remaps values out segmentValue from json
         assertTrue(annotationHelper.transformJson(ClassLoader.getSystemResource("input/singleAnnotation.json").openStream().readAllBytes())

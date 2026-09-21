@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.FileSystemNotFoundException;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -31,6 +32,7 @@ import datawave.annotation.protobuf.v1.Annotation;
 import datawave.annotation.util.v1.AnnotationUtils;
 import datawave.data.hash.UID;
 import datawave.ingest.data.RawRecordContainer;
+import datawave.ingest.data.Type;
 import datawave.ingest.data.TypeRegistry;
 import datawave.ingest.data.config.NormalizedContentInterface;
 import datawave.ingest.mapreduce.job.BulkIngestKey;
@@ -92,6 +94,9 @@ public class AnnotationHelper {
     public static final String ANNOTATION_IGNORE_UNKNOWN_FIELDS = "annotation.ignore.unknown.fields";
     private final boolean annotationIgnoreUnknownFields;
 
+    public static final String ANNOTATION_REFERENCED_EVENT_DATATYPE_ALIASES = "annotation.referenced.event.datatype.aliases";
+    private final Map<String,String> referencedEventDatatypeAliases = new HashMap<>();
+
     public AnnotationHelper(Configuration conf) {
         this.annotationTableName = conf.get(ANNOTATION_TNAME, "datawave.annotation");
         this.annotationTableNameText = new Text(annotationTableName);
@@ -114,6 +119,15 @@ public class AnnotationHelper {
         this.annotationSourceVisbilityDefault = conf.get(ANNOTATION_SOURCE_VISIBILITY_DEFAULT, "");
 
         this.annotationIgnoreUnknownFields = conf.getBoolean(ANNOTATION_IGNORE_UNKNOWN_FIELDS, true);
+
+        for (String aliasDefinition : conf.getTrimmedStringCollection(ANNOTATION_REFERENCED_EVENT_DATATYPE_ALIASES)) {
+            String[] alias = aliasDefinition.split(":", 2);
+            if (alias.length != 2 || alias[0].isBlank() || alias[1].isBlank()) {
+                throw new IllegalArgumentException(
+                                "Invalid " + ANNOTATION_REFERENCED_EVENT_DATATYPE_ALIASES + " entry (expected alias:configuredType): " + aliasDefinition);
+            }
+            referencedEventDatatypeAliases.put(alias[0], alias[1]);
+        }
 
         try {
             if (annotationRawTransformationEnabled) {
@@ -291,11 +305,7 @@ public class AnnotationHelper {
 
         // populating DATAWAVE fields from event/fields
         datawaveAnnotationBuilder.setShard(new String(shardId));
-        try {
-            datawaveAnnotationBuilder.setDataType(TypeRegistry.getType(annotationBuilder.getDataType()).outputName());
-        } catch (NoSuchElementException e) {
-            throw new IllegalArgumentException("Annotation references unknown Event datatype: " + annotationBuilder.getDataType(), e);
-        }
+        datawaveAnnotationBuilder.setDataType(resolveReferencedEventDatatype(annotationBuilder.getDataType()));
         datawaveAnnotationBuilder.setUid(uid.toString());
         datawaveAnnotationBuilder.putMetadata("visibility", new String(visibility));
         datawaveAnnotationBuilder.putMetadata("created_date", DateHelper.format8601(new Date(event.getTimestamp())));
@@ -316,6 +326,32 @@ public class AnnotationHelper {
         // when there are conflicts between properties generated from ingest and json source,
         // mergeFrom will collapse them in a way that preserves datawaveAnnotation
         return AnnotationUtils.injectAnnotationHash(annotationBuilder.mergeFrom(datawaveAnnotation).build());
+    }
+
+    protected String resolveReferencedEventDatatype(String referencedDatatype) {
+        try {
+            return TypeRegistry.getType(referencedDatatype).outputName();
+        } catch (NoSuchElementException e) {
+            for (Type configuredType : TypeRegistry.getTypes()) {
+                if (configuredType.outputName().equals(referencedDatatype)) {
+                    return referencedDatatype;
+                }
+            }
+
+            String configuredTypeName = referencedEventDatatypeAliases.get(referencedDatatype);
+            if (configuredTypeName != null) {
+                try {
+                    TypeRegistry.getType(configuredTypeName);
+                    return referencedDatatype;
+                } catch (NoSuchElementException aliasTargetException) {
+                    throw new IllegalArgumentException(
+                                    "Annotation Event datatype alias '" + referencedDatatype + "' refers to unknown configured datatype: " + configuredTypeName,
+                                    aliasTargetException);
+                }
+            }
+
+            throw new IllegalArgumentException("Annotation references unknown Event datatype: " + referencedDatatype, e);
+        }
     }
 
     /**

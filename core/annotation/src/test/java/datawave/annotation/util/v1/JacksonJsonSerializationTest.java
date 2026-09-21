@@ -15,6 +15,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import org.apache.commons.collections4.IteratorUtils;
@@ -127,7 +128,14 @@ public class JacksonJsonSerializationTest {
             log.debug("Reached end of file?", e);
         }
         assertEquals(36, parsedAnnotations.size());
-        // TODO more validation
+        Annotation representative = parsedAnnotations.get(0);
+        assertEquals("20130305_0", representative.getShard());
+        assertEquals("enwiki", representative.getDataType());
+        assertEquals("shrgxu.x5rq5c.i3zexf", representative.getUid());
+        assertEquals("C0CF2C89", representative.getAnnotationId());
+        assertEquals(Set.of("enwiki", "dewiki", "eswiki", "frwiki"), parsedAnnotations.stream().map(Annotation::getDataType).collect(Collectors.toSet()));
+        assertEquals(Set.of("TIME_MILLI", "TEXT_CHAR", "POINTS", "ALL"), parsedAnnotations.stream().flatMap(annotation -> annotation.getSegmentsList().stream())
+                        .map(segment -> segment.getBoundary().getBoundaryType().name()).collect(Collectors.toSet()));
     }
 
     @Test

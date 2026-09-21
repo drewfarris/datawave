@@ -112,6 +112,15 @@
     </property>
 
     <property>
+        <name>annotation.referenced.event.datatype.aliases</name>
+        <value>enwiki:wikipedia,dewiki:wikipedia,eswiki:wikipedia,frwiki:wikipedia</value>
+        <description>
+            Maps dynamically derived Event datatypes to the configured ingest datatype that produces them. The alias is
+            retained in the annotation because it is part of the referenced Event key.
+        </description>
+    </property>
+
+    <property>
         <name>annotation.data.category.uuid.fields</name>
         <value>HEADER_ID,EXTRA_UUID_1,EXTRA_UUID_2,ID</value>
         <description>List of known fields that contain UUIDs</description>
