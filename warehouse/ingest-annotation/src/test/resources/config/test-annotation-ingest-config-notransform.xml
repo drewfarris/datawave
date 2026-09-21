@@ -52,6 +52,16 @@
     </property>
 
     <property>
+        <name>testDataType.output.name</name>
+        <value>referencedEvent</value>
+    </property>
+
+    <property>
+        <name>testDataType.handler.classes</name>
+        <value>datawave.ingest.annotation.mapreduce.handler.SimpleAnnotationDataTypeHandler</value>
+    </property>
+
+    <property>
         <name>annotation.raw.transform.enable</name>
         <value>false</value>
         <description>enable transformation of raw data using the defined xslt</description>

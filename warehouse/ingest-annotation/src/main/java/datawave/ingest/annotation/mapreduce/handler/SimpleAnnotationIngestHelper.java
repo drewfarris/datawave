@@ -19,13 +19,13 @@ import datawave.annotation.data.transform.VisibilityTransformer;
 import datawave.annotation.protobuf.v1.Annotation;
 import datawave.data.hash.HashUID;
 import datawave.ingest.data.RawRecordContainer;
-import datawave.ingest.data.TypeRegistry;
 import datawave.ingest.data.config.NormalizedContentInterface;
 import datawave.ingest.data.config.NormalizedFieldAndValue;
 import datawave.ingest.data.config.ingest.BaseIngestHelper;
 
 /**
- * parses the json data and extracts a few required fields to the event
+ * Parses the JSON data and extracts fields required to process the annotation record. The annotation's {@code dataType} identifies the referenced Event and
+ * must not replace the annotation record's ingest datatype.
  */
 public class SimpleAnnotationIngestHelper extends BaseIngestHelper {
     private static final Logger log = Logger.getLogger(SimpleAnnotationIngestHelper.class);
@@ -48,7 +48,6 @@ public class SimpleAnnotationIngestHelper extends BaseIngestHelper {
             Annotation annotation = annotationBuilder.build();
 
             event.setId(HashUID.parse(annotation.getUid()));
-            event.setDataType(TypeRegistry.getType(annotation.getDataType()));
             event.setTimestamp(DEFAULT_TIMESTAMP_TRANSFORMER.fromMetadataMap(annotation.getMetadataMap()));
             event.setVisibility(DEFAULT_VISIBILITY_TRANSFORMER.fromMetadataMap(annotation.getMetadataMap()));
 

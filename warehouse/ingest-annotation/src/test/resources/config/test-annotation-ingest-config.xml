@@ -94,6 +94,18 @@
     </property>
 
     <property>
+        <name>testDataType.output.name</name>
+        <value>referencedEvent</value>
+        <description>Canonical datatype used in tests for the Event referenced by an annotation</description>
+    </property>
+
+    <property>
+        <name>testDataType.handler.classes</name>
+        <value>datawave.ingest.annotation.mapreduce.handler.SimpleAnnotationDataTypeHandler</value>
+        <description>Registers a distinct Event datatype for testing annotation references without assigning it an ingest helper</description>
+    </property>
+
+    <property>
         <name>annotation.raw.transform.enable</name>
         <value>true</value>
         <description>enable transformation of raw data using the defined xslt</description>

@@ -6,6 +6,7 @@ import java.nio.file.FileSystemNotFoundException;
 import java.util.Date;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.NoSuchElementException;
 
 import javax.xml.transform.stream.StreamSource;
 
@@ -30,6 +31,7 @@ import datawave.annotation.protobuf.v1.Annotation;
 import datawave.annotation.util.v1.AnnotationUtils;
 import datawave.data.hash.UID;
 import datawave.ingest.data.RawRecordContainer;
+import datawave.ingest.data.TypeRegistry;
 import datawave.ingest.data.config.NormalizedContentInterface;
 import datawave.ingest.mapreduce.job.BulkIngestKey;
 import datawave.ingest.mapreduce.job.writer.ContextWriter;
@@ -260,8 +262,8 @@ public class AnnotationHelper {
     }
 
     /**
-     * this method parses jsonInBytes and sets the properties that are passed in. when there are conflicts between properties generated from ingest and json
-     * source, it will preserve the parameters
+     * Parses {@code jsonInBytes} and sets the properties generated while ingesting the annotation. The annotation's datatype identifies the referenced Event,
+     * so it is validated and canonicalized independently of the annotation record's ingest datatype.
      *
      * @param jsonInBytes
      * @param shardId
@@ -289,7 +291,11 @@ public class AnnotationHelper {
 
         // populating DATAWAVE fields from event/fields
         datawaveAnnotationBuilder.setShard(new String(shardId));
-        datawaveAnnotationBuilder.setDataType(event.getDataType().outputName());
+        try {
+            datawaveAnnotationBuilder.setDataType(TypeRegistry.getType(annotationBuilder.getDataType()).outputName());
+        } catch (NoSuchElementException e) {
+            throw new IllegalArgumentException("Annotation references unknown Event datatype: " + annotationBuilder.getDataType(), e);
+        }
         datawaveAnnotationBuilder.setUid(uid.toString());
         datawaveAnnotationBuilder.putMetadata("visibility", new String(visibility));
         datawaveAnnotationBuilder.putMetadata("created_date", DateHelper.format8601(new Date(event.getTimestamp())));

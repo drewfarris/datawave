@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Collection;
@@ -141,7 +142,7 @@ public class AnnotationHelperTest {
         contextWriter.commit(ctx);
 
         BulkIngestKey expectedKey = new BulkIngestKey(new Text("datawave.annotation"),
-                        new Key("20251107_1", "myannotation\0a.b.c\0testAnnotationType", "BAB72CC7\0seg\0testSegmentId1", "TEST_VISIBILITY", time));
+                        new Key("20251107_1", "referencedEvent\0a.b.c\0testAnnotationType", "BAB72CC7\0seg\0testSegmentId1", "TEST_VISIBILITY", time));
 
         BulkIngestKey expectedSourceKey = new BulkIngestKey(new Text("datawave.annotationSource"),
                         new Key("F1A0463C207B3778B472B506F3F8351A", "d", "testEngine\u00006.7\u0000testAnalyticHash", new ColumnVisibility("PRIVATE"), time));
@@ -199,9 +200,10 @@ public class AnnotationHelperTest {
                         .processBulk(ClassLoader.getSystemResource("input/singleAnnotation.json").openStream().readAllBytes(), event, fields);
 
         BulkIngestKey expectedKey = new BulkIngestKey(new Text("datawave.annotation"),
-                        new Key("20251107_1", "myannotation\0a.b.c\0testAnnotationType", "BAB72CC7\0seg\0testSegmentId1", "TEST_VISIBILITY", time));
+                        new Key("20251107_1", "referencedEvent\0a.b.c\0testAnnotationType", "BAB72CC7\0seg\0testSegmentId1", "TEST_VISIBILITY", time));
         // checking to make sure the first segment BulkIngestKey is created
-        assertTrue(bulkKeys.containsKey(expectedKey), "BulkIngestKey structure could potentially change as annotation-core library gets updated.");
+        assertTrue(bulkKeys.containsKey(expectedKey),
+                        "BulkIngestKey structure could potentially change as annotation-core library gets updated. Actual keys: " + bulkKeys.keySet());
 
         // the first segment value should be protobuf that can be parsed by Segment class
         Segment segment = Segment.parseFrom(bulkKeys.get(expectedKey).stream().findFirst().get().get());
@@ -218,8 +220,23 @@ public class AnnotationHelperTest {
         Annotation annotation = annotationHelper.buildAnnotation(ClassLoader.getSystemResource("input/singleAnnotation.json").openStream().readAllBytes(),
                         event.getShardId().getBytes(), UID.parse("1.2.3"), "viz".getBytes(), event);
 
-        assertEquals("myannotation", annotation.getDataType());
+        assertEquals("referencedEvent", annotation.getDataType());
         assertEquals("1.2.3", annotation.getUid());
+    }
+
+    @Test
+    public void testBuildAnnotationRejectsUnknownReferencedEventDatatype() throws IOException {
+        RawRecordContainer event = new EventWithShardId("20251107_1");
+        event.setDataType(TypeRegistry.getType("annotation"));
+        event.setTimestamp(System.currentTimeMillis());
+
+        String json = new String(ClassLoader.getSystemResource("input/singleAnnotation.json").openStream().readAllBytes(), StandardCharsets.UTF_8)
+                        .replace("\"testDataType\"", "\"unknownDataType\"");
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                        () -> annotationHelper.buildAnnotation(json.getBytes(StandardCharsets.UTF_8), event.getShardId().getBytes(), UID.parse("1.2.3"),
+                                        "viz".getBytes(StandardCharsets.UTF_8), event));
+        assertTrue(exception.getMessage().contains("unknownDataType"));
     }
 
     @Test

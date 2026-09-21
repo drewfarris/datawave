@@ -9,6 +9,7 @@ import java.io.File;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
@@ -21,7 +22,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.google.common.collect.Multimap;
+import com.google.protobuf.util.JsonFormat;
 
+import datawave.annotation.protobuf.v1.Annotation;
 import datawave.ingest.annotation.mapreduce.input.SimpleAnnotationRecordReader;
 import datawave.ingest.data.RawRecordContainer;
 import datawave.ingest.data.TypeRegistry;
@@ -63,6 +66,26 @@ public class SimpleAnnotationIngestHelperTest {
         File dataFile = new File(data.toURI());
         Path p = new Path(dataFile.toURI().toString());
         return new FileSplit(p, 0, dataFile.length(), null);
+    }
+
+    @Test
+    public void testReferencedEventDatatypeDoesNotControlAnnotationProcessing() throws Exception {
+        split = getSplit("/input/singleAnnotation.json");
+        reader.initialize(split, ctx);
+        reader.setInputDate(System.currentTimeMillis());
+
+        assertTrue(reader.nextKeyValue());
+        RawRecordContainer event = reader.getEvent();
+        assertEquals("annotation", event.getDataType().typeName());
+        assertEquals("myannotation", event.getDataType().outputName());
+
+        Annotation annotation = Annotation.newBuilder().setDataType("testDataType").setUid("abcde.fghij.klmno").putMetadata("visibility", "PUBLIC")
+                        .putMetadata("created_date", "2025-10-17T10:30:00.0Z").build();
+        event.setRawData(JsonFormat.printer().print(annotation).getBytes(StandardCharsets.UTF_8));
+        ingestHelper.getEventFields(event);
+
+        assertEquals("annotation", event.getDataType().typeName());
+        assertEquals("myannotation", event.getDataType().outputName());
     }
 
     @Test
