@@ -97,6 +97,7 @@ public class TestAnnotationControllerV1 {
     private AnnotationSupplier annotationSink;
 
     private AnnotationControllerV1 annotationController;
+    private AnnotationAckTracker annotationAckTracker;
 
     @BeforeAll
     public static void setupAccumulo() throws Exception {
@@ -185,8 +186,9 @@ public class TestAnnotationControllerV1 {
         defaultUserDetails = new DatawaveUserDetails(Collections.singleton(dwUser), dwUser.getCreationTime());
 
         ExecutorService executorService = Executors.newCachedThreadPool();
+        annotationAckTracker = new AnnotationAckTracker();
         annotationController = new AnnotationControllerV1(connectionFactory, lookupService, annotationProperties, timestampTransformer, visibilityTransformer,
-                        annotationSink, executorService, new AnnotationAckTracker());
+                        annotationSink, executorService, annotationAckTracker);
         lenient().when(connectionFactory.getClient(any(), any(), any(), any(), any())).thenReturn(client);
     }
 
@@ -202,7 +204,7 @@ public class TestAnnotationControllerV1 {
             assertNotNull(correlationId);
             org.springframework.messaging.Message<String> ack = org.springframework.integration.support.MessageBuilder.withPayload("ack")
                             .setCorrelationId(correlationId).build();
-            annotationController.processConfirmAck(ack);
+            annotationAckTracker.processConfirmAck(ack);
             return true;
         });
     }

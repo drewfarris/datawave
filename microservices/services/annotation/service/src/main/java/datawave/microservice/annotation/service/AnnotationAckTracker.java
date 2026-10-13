@@ -4,15 +4,41 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 
+import org.springframework.integration.IntegrationMessageHeaderAccessor;
+import org.springframework.integration.annotation.ServiceActivator;
+import org.springframework.messaging.Message;
 import org.springframework.stereotype.Component;
+
+import datawave.microservice.annotation.config.AnnotationRole;
+import datawave.microservice.annotation.config.ConditionalOnAnnotationRole;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * Tracks in-flight annotation write operations by correlation ID so that async ack/timeout callbacks can resolve the original request.
  */
 @Component
+@ConditionalOnAnnotationRole({AnnotationRole.API, AnnotationRole.COMBINED})
+@Slf4j
 public class AnnotationAckTracker {
+    public static final String ANNOTATION_ACK_CHANNEL = "annotationAckChannel";
 
     private final Map<String,CountDownLatch> correlationLatchMap = new ConcurrentHashMap<>();
+
+    /**
+     * Broker callbacks run without a REST user's security context. Keep this endpoint outside the secured controller.
+     *
+     * @param message
+     *            the producer confirmation, including the original correlation ID
+     */
+    @ServiceActivator(inputChannel = ANNOTATION_ACK_CHANNEL)
+    public void processConfirmAck(Message<?> message) {
+        Object correlationId = message.getHeaders().get(IntegrationMessageHeaderAccessor.CORRELATION_ID);
+        if (correlationId == null) {
+            log.warn("No correlation ID found in confirm ack message");
+        } else if (!countdown(correlationId.toString())) {
+            log.warn("Unable to decrement latch for annotation ID [{}]", correlationId);
+        }
+    }
 
     /**
      * Register a new latch for the given correlation ID. If a latch already exists for this ID, the existing latch is returned instead.

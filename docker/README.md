@@ -293,6 +293,28 @@ Start all services:
 
 ```docker compose --profile datawave-stack --profile full up -d```
 
+To run the annotation REST API and queue writers as independently scaled pools,
+use the additional split configuration in place of the combined `annotation`
+profile:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose-annotation-split.yml \
+  --profile datawave-stack --profile annotation-split up -d \
+  --scale annotation-api=3 --scale annotation-writer=1
+```
+
+Both pools load shared `config/annotation.yml`. Spring profiles `annotation-api`
+and `annotation-writer` select `config/annotation-annotation-api.yml` and
+`config/annotation-annotation-writer.yml`; those overlays set `annotation.role`.
+No role environment variable is needed. Publish the overlays to Config Server
+before starting split deployments. The API overlay disables direct file fallback
+by default. Deployments without either role profile retain combined behavior. API HTTPS ports are
+assigned dynamically to support multiple replicas; use a load balancer for a
+stable external address. Writers publish no host ports. Configure persistent
+storage if enabling file fallback or dump output. See the
+[annotation service README](../microservices/services/annotation/README.md#independent-api-and-writer-deployments)
+for backend flags, durable queue groups, migration, and acceptance semantics.
+
 ### Shard table splits
 
 `stack/shard-splits.txt` holds the split points for `datawave.shard`, one full `yyyyMMdd_num` shard id

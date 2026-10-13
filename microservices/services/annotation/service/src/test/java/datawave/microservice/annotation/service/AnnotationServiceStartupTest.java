@@ -63,6 +63,9 @@ public class AnnotationServiceStartupTest {
     @Autowired
     private AnnotationSupplier annotationSource;
 
+    @Autowired
+    private AnnotationAckTracker annotationAckTracker;
+
     @BeforeEach
     void simulateHealthyBrokerProducerConfirms() {
         // Every message the controller hands to the real annotationSource bean is immediately "confirmed", just as a
@@ -70,7 +73,7 @@ public class AnnotationServiceStartupTest {
         annotationSource.get().subscribe(sent -> {
             Object correlationId = sent.getHeaders().get(IntegrationMessageHeaderAccessor.CORRELATION_ID);
             Message<String> ack = MessageBuilder.withPayload("ack").setCorrelationId(correlationId).build();
-            annotationController.processConfirmAck(ack);
+            annotationAckTracker.processConfirmAck(ack);
         });
     }
 

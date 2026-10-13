@@ -16,16 +16,20 @@ spring:
       bindings:
         annotationSource-out-0:
           destination: 'annotation'
+          content-type: application/x-protobuf
           producer:
             errorChannelEnabled: true
         logAnnotationSink-in-0:
           destination: 'annotation'
+          content-type: application/x-protobuf
           group: 'log'
         accumuloAnnotationSink-in-0:
           destination: 'annotation'
+          content-type: application/x-protobuf
           group: 'accumulo'
         dumpAnnotationSink-in-0:
           destination: 'annotation'
+          content-type: application/x-protobuf
           group: 'dump'
           consumer:
             concurrency: 5
@@ -36,6 +40,10 @@ spring:
     deserialization:
       fail-on-unknown-properties: false
 annotation:
+  # annotation.role defaults to combined in packaged bootstrap configuration.
+  # Activate annotation-api or annotation-writer to load its role-specific overlay.
+  # Leave role unset here; deployments without either profile remain combined.
+  # role: combined
   system-from: "datawave-annotation-service"
 
   health:
@@ -117,9 +125,11 @@ annotation:
         username: '${accumulo.username}'
         password: '${accumulo.password}'
     file:
+      # Direct API fallback on publish failure; disabled automatically in the writer role.
       enabled: true
       pathUri: 'file:///annotation'
     dump:
+      # Queue-driven file output in writer/combined mode; provision its queue (bindQueue: false).
       enabled: false
       pathUri: 'file:///annotation-dump'
 

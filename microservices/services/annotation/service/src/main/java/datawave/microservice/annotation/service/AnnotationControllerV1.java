@@ -20,14 +20,10 @@ import org.apache.accumulo.core.security.Authorizations;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.integration.IntegrationMessageHeaderAccessor;
-import org.springframework.integration.annotation.ServiceActivator;
 import org.springframework.integration.support.MessageBuilder;
-import org.springframework.messaging.Message;
 import org.springframework.security.access.annotation.Secured;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.util.MultiValueMap;
@@ -63,6 +59,8 @@ import datawave.annotation.util.v1.AnnotationValidators;
 import datawave.core.common.connection.AccumuloConnectionFactory;
 import datawave.core.query.runner.AccumuloConnectionRequestMap;
 import datawave.microservice.annotation.common.AnnotationSupplier;
+import datawave.microservice.annotation.config.AnnotationRole;
+import datawave.microservice.annotation.config.ConditionalOnAnnotationRole;
 import datawave.microservice.annotation.health.HealthChecker;
 import datawave.microservice.annotation.service.config.AnnotationProperties;
 import datawave.microservice.annotation.util.Metadata;
@@ -81,12 +79,10 @@ import lombok.extern.slf4j.Slf4j;
 @Tag(name = "Annotation Controller /v1", description = "Operations related to annotations")
 @Slf4j
 @RestController
+@ConditionalOnAnnotationRole({AnnotationRole.API, AnnotationRole.COMBINED})
 @Secured({"AuthorizedUser", "AuthorizedQueryServer", "InternalUser", "Administrator"})
 @RequestMapping(path = "/v1", produces = {MediaType.APPLICATION_JSON_VALUE})
 public class AnnotationControllerV1 {
-    // Note: This must match 'annotationAckChannel' in the service configuration. Default set in bootstrap.yml.
-    public static final String ANNOTATION_ACK_CHANNEL = "annotationAckChannel";
-
     public static final String ANNOTATION_SERVICE_SYSTEM_FROM = "annotation";
 
     /** used to serialize error response bodies (see {@link #jsonError(String)}/{@link #jsonNotFound(String)}) */
@@ -657,27 +653,6 @@ public class AnnotationControllerV1 {
         }
 
         return success ? Optional.of(identifiedMessage) : Optional.empty();
-    }
-
-    /**
-     * Receives producer confirm acknowledgements, and disengages the latch associated with the given correlation ID.
-     *
-     * @param message
-     *            the confirmation acknowledgements message
-     */
-    @ConditionalOnProperty(value = "annotation.annotationAckEnabled", havingValue = "true", matchIfMissing = true)
-    @ServiceActivator(inputChannel = ANNOTATION_ACK_CHANNEL)
-    public void processConfirmAck(Message<?> message) {
-        Object headerObj = message.getHeaders().get(IntegrationMessageHeaderAccessor.CORRELATION_ID);
-
-        if (headerObj != null) {
-            String correlationId = headerObj.toString();
-            if (annotationAckTracker.countdown(correlationId)) {} else {
-                log.warn("Unable to decrement latch for audit ID [{}]", correlationId);
-            }
-        } else {
-            log.warn("No correlation ID found in confirm ack message");
-        }
     }
 
     /**

@@ -6,21 +6,18 @@ import java.util.concurrent.Executors;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.security.web.firewall.StrictHttpFirewall;
 
-import com.fasterxml.jackson.databind.Module;
-import com.fasterxml.jackson.databind.module.SimpleModule;
-
-import datawave.annotation.protobuf.v1.Annotation;
-import datawave.annotation.protobuf.v1.Segment;
-import datawave.annotation.util.v1.JacksonAnnotationDeserializer;
-import datawave.annotation.util.v1.JacksonAnnotationSerializer;
-import datawave.annotation.util.v1.JacksonSegmentDeserializer;
-import datawave.annotation.util.v1.JacksonSegmentSerializer;
 import datawave.microservice.annotation.common.AnnotationSupplier;
+import datawave.microservice.annotation.common.config.AnnotationJsonConfiguration;
+import datawave.microservice.annotation.config.AnnotationRole;
+import datawave.microservice.annotation.config.ConditionalOnAnnotationRole;
 
 @Configuration
 @EnableConfigurationProperties(AnnotationProperties.class)
+@ConditionalOnAnnotationRole({AnnotationRole.API, AnnotationRole.COMBINED})
+@Import(AnnotationJsonConfiguration.class)
 public class AnnotationServiceConfig {
     @Bean
     public AnnotationSupplier annotationSource() {
@@ -40,20 +37,7 @@ public class AnnotationServiceConfig {
         return firewall;
     }
 
-    @Bean
-    public Module jacksonAnnotationModule() {
-        final SimpleModule simpleModule = new SimpleModule();
-
-        // Added for Annotation and Segment serialization and deserialization.
-        simpleModule.addDeserializer(Annotation.class, new JacksonAnnotationDeserializer());
-        simpleModule.addSerializer(Annotation.class, new JacksonAnnotationSerializer());
-        simpleModule.addDeserializer(Segment.class, new JacksonSegmentDeserializer());
-        simpleModule.addSerializer(Segment.class, new JacksonSegmentSerializer());
-
-        return simpleModule;
-    }
-
-    @Bean
+    @Bean(destroyMethod = "shutdown")
     public ExecutorService federatedReadExecutorService() {
         return Executors.newCachedThreadPool();
     }

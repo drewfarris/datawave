@@ -1,6 +1,10 @@
 spring:
   application:
     name: annotation
+  rabbitmq:
+    # Required by annotationSource's confirmAckChannel and the REST acceptance boundary.
+    publisher-confirm-type: correlated
+    publisher-returns: true
   cloud:
     config:
       # Disable consul-first config by default. We'll turn it back on in the consul profile if that profile is enabled.
@@ -17,7 +21,7 @@ spring:
         bindings:
           annotationSource-out-0:
             producer:
-              # Note: This must match ANNOTATION_ACK_CHANNEL in AnnotationControllerV1 or producer confirms will not work.
+              # Must match ANNOTATION_ACK_CHANNEL in AnnotationAckTracker.
               confirmAckChannel: 'annotationAckChannel'
 management:
   health:
@@ -27,6 +31,8 @@ management:
         RABBITMQ_UNHEALTHY: 200
 
 annotation:
+  # Used when no deployment-specific role is supplied.
+  role: combined
   system-from: "datawave-annotation-service"
 
   # Database connection settings

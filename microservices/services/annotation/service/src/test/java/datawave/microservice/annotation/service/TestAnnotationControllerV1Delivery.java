@@ -55,7 +55,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Focused unit tests for the message delivery path in {@link AnnotationControllerV1}: {@code writeAnnotation}, {@code sendAnnotation}, and
  * {@code sendAnnotationMessage}. These methods are package-private (visible for testing), so they are called directly here. The durable-write acknowledgement
- * protocol is simulated by invoking {@link AnnotationControllerV1#processConfirmAck(Message)} directly rather than standing up a real message broker.
+ * protocol is simulated by invoking {@link AnnotationAckTracker#processConfirmAck(Message)} directly rather than standing up a real message broker.
  */
 @SuppressWarnings("SpellCheckingInspection")
 @ExtendWith(MockitoExtension.class)
@@ -108,7 +108,7 @@ public class TestAnnotationControllerV1Delivery {
             Object correlationId = sent.getHeaders().get(IntegrationMessageHeaderAccessor.CORRELATION_ID);
             assertNotNull(correlationId);
             Message<String> ack = MessageBuilder.withPayload("ack").setCorrelationId(correlationId).build();
-            annotationController.processConfirmAck(ack);
+            getAnnotationAckTracker().processConfirmAck(ack);
             return true;
         });
     }
@@ -191,7 +191,7 @@ public class TestAnnotationControllerV1Delivery {
             Message<AnnotationMessage> sent = invocation.getArgument(0);
             Object correlationId = sent.getHeaders().get(IntegrationMessageHeaderAccessor.CORRELATION_ID);
             assertNotNull(correlationId);
-            annotationController.processConfirmAck(MessageBuilder.withPayload("ack").setCorrelationId(correlationId).build());
+            getAnnotationAckTracker().processConfirmAck(MessageBuilder.withPayload("ack").setCorrelationId(correlationId).build());
             return true;
         });
 
@@ -264,7 +264,7 @@ public class TestAnnotationControllerV1Delivery {
             originalSenderReachedSend.countDown();
             assertTrue(releaseAck.await(10, TimeUnit.SECONDS), "test did not release the ack in time");
 
-            controller.processConfirmAck(MessageBuilder.withPayload("ack").setCorrelationId(correlationId).build());
+            spyTracker.processConfirmAck(MessageBuilder.withPayload("ack").setCorrelationId(correlationId).build());
             return true;
         });
 
@@ -384,7 +384,7 @@ public class TestAnnotationControllerV1Delivery {
         String correlationIdString = correlationId.toString();
 
         // Now simulate the late ack arriving after the latch was already removed
-        annotationController.processConfirmAck(MessageBuilder.withPayload("late-ack").setCorrelationId(correlationIdString).build());
+        getAnnotationAckTracker().processConfirmAck(MessageBuilder.withPayload("late-ack").setCorrelationId(correlationIdString).build());
 
         // Verify no exceptions were thrown and the tracker is clean
         assertTrue(getAnnotationAckTracker().isEmpty(), "no latch should remain after late ack");
@@ -543,7 +543,7 @@ public class TestAnnotationControllerV1Delivery {
                 Message<AnnotationMessage> sent = invocation.getArgument(0);
                 Object correlationId = sent.getHeaders().get(IntegrationMessageHeaderAccessor.CORRELATION_ID);
                 assertNotNull(correlationId);
-                annotationController.processConfirmAck(MessageBuilder.withPayload("ack").setCorrelationId(correlationId).build());
+                getAnnotationAckTracker().processConfirmAck(MessageBuilder.withPayload("ack").setCorrelationId(correlationId).build());
             }
             return succeeds;
         });
@@ -663,7 +663,7 @@ public class TestAnnotationControllerV1Delivery {
             sendCounts.merge(String.valueOf(correlationId), 1, Integer::sum);
             Thread.sleep(10);
             assertNotNull(correlationId);
-            annotationController.processConfirmAck(MessageBuilder.withPayload("ack").setCorrelationId(correlationId).build());
+            getAnnotationAckTracker().processConfirmAck(MessageBuilder.withPayload("ack").setCorrelationId(correlationId).build());
             return true;
         });
 

@@ -12,8 +12,10 @@ import reactor.core.scheduler.Schedulers;
 public class AnnotationSupplier implements Supplier<Flux<Message<AnnotationMessage>>> {
     private final Sinks.Many<Message<AnnotationMessage>> messagingSink = Sinks.many().multicast().onBackpressureBuffer();
 
-    public boolean send(Message<AnnotationMessage> auditMessage) {
-        return messagingSink.tryEmitNext(auditMessage).isSuccess();
+    // Reactor's sink rejects concurrent emissions. Serialize this brief operation so overlapping REST requests
+    // are not mistaken for unavailable messaging infrastructure. Confirmation waits happen outside this lock.
+    public synchronized boolean send(Message<AnnotationMessage> annotationMessage) {
+        return messagingSink.tryEmitNext(annotationMessage).isSuccess();
     }
 
     @Override

@@ -1,0 +1,14 @@
+# Application annotation + profile annotation-api. Keep shared destinations and tables in annotation.yml.
+annotation:
+  role: api
+  annotation-ack-enabled: true
+  annotation-ack-timeout-millis: 500
+  retry:
+    max-attempts: 10
+    backoff-interval-millis: 5000
+    fail-timeout-millis: 300000
+  writers:
+    file:
+      # Split API deployments require broker-confirmed acceptance by default.
+      # Enable fallback only with persistent per-replica storage and a replay procedure.
+      enabled: false

@@ -1,0 +1,21 @@
+# Application annotation + profile annotation-writer. Later deployment profiles can select other backends.
+spring:
+  cloud:
+    stream:
+      bindings:
+        accumuloAnnotationSink-in-0:
+          consumer:
+            concurrency: 1
+annotation:
+  role: writer
+  enable-internal-id-lookup: false
+  writers:
+    accumulo:
+      enabled: true
+    log:
+      enabled: false
+    dump:
+      enabled: false
+    file:
+      # Direct API fallback is separate from the queue-driven dump backend.
+      enabled: false
