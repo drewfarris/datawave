@@ -1123,10 +1123,8 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
         AccumuloClient closingClient;
         ClientLease closingLease;
         TransformIterator<?,?> iterator;
-        long generation;
         synchronized (running) {
             resultsFuture = stopResultsThreadState();
-            generation = resultsThreadGeneration.get();
             iterator = iter;
             closingClient = client;
             closingLease = clientLease;
@@ -1158,13 +1156,14 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             }
         } catch (Exception e) {
             synchronized (running) {
-                // Preserve retryable ownership after a failed return, without restoring it into a newer initialization.
-                if (generation == resultsThreadGeneration.get() && client == null && clientLease == null) {
+                // A failed return did not transfer this lease. Its initializer may still need to claim it after cancellation or another attempt.
+                if (closingLease != null) {
+                    closingLease.returnClaimed = false;
+                }
+                // Producer termination does not replace client ownership. Only the same initialization can recover its installed client.
+                if (initializationClientLease == closingLease && client == null && clientLease == null) {
                     client = closingClient;
                     clientLease = closingLease;
-                    if (closingLease != null) {
-                        closingLease.returnClaimed = false;
-                    }
                 }
             }
             throw e;
