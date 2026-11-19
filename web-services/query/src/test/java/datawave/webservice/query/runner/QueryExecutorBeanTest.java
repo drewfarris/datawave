@@ -528,6 +528,152 @@ public class QueryExecutorBeanTest {
         }
     }
 
+    /**
+     * Close detached and claimed its client before returning it, but recovered a failed return only if the producer generation was unchanged. Cancel/terminate
+     * during that return changed the generation without transferring the lease, so the query lost its client while the pool still tracked an active loan.
+     *
+     * Hold a real pooled loan across a return that fails before releasing it. The query must retain that same client for a later close to return successfully.
+     * The no-termination case controls the ordinary failed-return behavior, and the original return exception must be preserved in every case.
+     *
+     * @param termination
+     *            the producer termination that overlaps the failed return, or none for the control
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"none", "cancel", "terminate"})
+    @Timeout(15)
+    @SuppressWarnings("unchecked")
+    public void testFailedCloseRetainsLeaseAfterProducerTermination(String termination) throws Exception {
+        AccumuloClient pooledClient = mock(AccumuloClient.class);
+        AccumuloClientPool pool = singleClientPool(pooledClient);
+        AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+        RunningQuery runningQuery = queryForReset(pool.borrowObject(new HashMap<>()), createNewQuery(), mock(QueryLogic.class));
+        CountDownLatch returning = new CountDownLatch(1);
+        CountDownLatch releaseReturn = new CountDownLatch(1);
+        AtomicBoolean firstReturn = new AtomicBoolean(true);
+        IOException originalFailure = new IOException("Return failed before releasing its lease");
+        doAnswer(invocation -> {
+            if (firstReturn.compareAndSet(true, false)) {
+                returning.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releaseReturn, 5, TimeUnit.SECONDS), "Pool return was not released");
+                throw originalFailure;
+            }
+            return invocation.callRealMethod();
+        }).when(factory).returnClient(pooledClient);
+        ExecutorService requests = Executors.newSingleThreadExecutor();
+        Future<?> close = requests.submit(() -> {
+            runningQuery.closeConnection(factory);
+            return null;
+        });
+        try {
+            assertTrue(returning.await(2, TimeUnit.SECONDS), "Close did not reach its pool return");
+            assertEquals(1, pool.getNumActive(), "The original lease must still be active before return");
+            if ("cancel".equals(termination)) {
+                runningQuery.cancel();
+            } else if ("terminate".equals(termination)) {
+                runningQuery.terminateResultsThread();
+            }
+            releaseReturn.countDown();
+            ExecutionException failure = assertThrows(ExecutionException.class, () -> close.get(2, TimeUnit.SECONDS));
+            assertSame(originalFailure, failure.getCause(), "Recovery replaced the original pool-return error");
+            assertSame(pooledClient, runningQuery.getClient(), "Termination lost ownership of the failed-return client");
+            assertTrue(pool.connectorCameFromHere(pooledClient), "The failed return must leave the loan tracked");
+
+            runningQuery.closeConnection(factory);
+            assertNull(runningQuery.getClient());
+            assertEquals(0, pool.getNumActive(), "A later close could not release the retained loan");
+            assertEquals(1, pool.getNumIdle());
+            assertFalse(pool.connectorCameFromHere(pooledClient));
+        } finally {
+            releaseReturn.countDown();
+            requests.shutdownNow();
+            assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+            if (pool.connectorCameFromHere(pooledClient)) {
+                pool.returnObject(pooledClient);
+            }
+            runningQuery.getLogic().close();
+            pool.close();
+        }
+    }
+
+    /**
+     * A pending reset initializer owned a pooled client when adminClose detached it for return. Overlapping adminCancel changed the generation and removed the
+     * query; when the first return failed, close kept its ownership claim set. Reset's later initialization failure therefore skipped the still-active loan.
+     *
+     * Gate initialize and the first return independently, then call the real reset/adminClose/adminCancel methods with a real pool. Reset's failure cleanup
+     * must release the loan even though the query has already been removed. Without adminCancel, the control exercises the same failures and normal recovery.
+     *
+     * @param cancelDuringReturn
+     *            whether adminCancel overlaps adminClose's pending return
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @Timeout(15)
+    @SuppressWarnings("unchecked")
+    public void testResetFailureReleasesLeaseAfterOverlappingFailedClose(boolean cancelDuringReturn) throws Exception {
+        AccumuloClient pooledClient = mock(AccumuloClient.class);
+        AccumuloClientPool pool = singleClientPool(pooledClient);
+        AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+        QueryImpl settings = createNewQuery();
+        settings.setOwner("owner");
+        QueryLogic<Object> logic = mock(QueryLogic.class);
+        RunningQuery runningQuery = queryForReset(mock(AccumuloClient.class), settings, logic);
+        runningQuery.closeConnection(factory);
+        configureResetOwner(factory);
+        String id = settings.getId().toString();
+        cache.put(id, runningQuery);
+        CountDownLatch initializing = new CountDownLatch(1);
+        CountDownLatch releaseInitializer = new CountDownLatch(1);
+        CountDownLatch returning = new CountDownLatch(1);
+        CountDownLatch releaseReturn = new CountDownLatch(1);
+        AtomicBoolean firstReturn = new AtomicBoolean(true);
+        when(logic.initialize(any(), any(), any())).thenAnswer(invocation -> {
+            initializing.countDown();
+            assertTrue(Uninterruptibles.awaitUninterruptibly(releaseInitializer, 5, TimeUnit.SECONDS), "Initializer was not released");
+            throw new IllegalStateException("Initialization failed after the failed close");
+        });
+        doAnswer(invocation -> {
+            if (firstReturn.compareAndSet(true, false)) {
+                returning.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releaseReturn, 5, TimeUnit.SECONDS), "Pool return was not released");
+                throw new IOException("Return failed before releasing its lease");
+            }
+            return invocation.callRealMethod();
+        }).when(factory).returnClient(pooledClient);
+        ExecutorService requests = Executors.newFixedThreadPool(2);
+        Future<?> reset = requests.submit(() -> bean.reset(id));
+        try {
+            assertTrue(initializing.await(2, TimeUnit.SECONDS), "Reset did not enter initialization");
+            assertSame(pooledClient, runningQuery.getClient());
+            Future<?> close = requests.submit(() -> bean.adminClose(id));
+            assertTrue(returning.await(2, TimeUnit.SECONDS), "Admin close did not reach its pool return");
+            if (cancelDuringReturn) {
+                bean.adminCancel(id);
+            }
+            releaseReturn.countDown();
+            close.get(2, TimeUnit.SECONDS);
+            assertNull(cache.get(id), "Administrative close did not remove the query");
+            assertEquals(1, pool.getNumActive(), "The gated return failed before releasing its loan");
+
+            releaseInitializer.countDown();
+            ExecutionException failure = assertThrows(ExecutionException.class, () -> reset.get(2, TimeUnit.SECONDS));
+            assertInstanceOf(DatawaveWebApplicationException.class, failure.getCause());
+            assertNull(runningQuery.getClient());
+            assertEquals(0, pool.getNumActive(), "Reset failure skipped a loan still claimed by the failed close");
+            assertEquals(1, pool.getNumIdle());
+            assertFalse(pool.connectorCameFromHere(pooledClient), "Failure cleanup left an orphaned tracking entry");
+        } finally {
+            releaseReturn.countDown();
+            releaseInitializer.countDown();
+            requests.shutdownNow();
+            assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+            if (pool.connectorCameFromHere(pooledClient)) {
+                pool.returnObject(pooledClient);
+            }
+            logic.close();
+            pool.close();
+        }
+    }
+
     private AccumuloClientPool singleClientPool(AccumuloClient client) {
         AccumuloClientPoolFactory poolFactory = new AccumuloClientPoolFactory("test", "test", "unused", "unused") {
             @Override

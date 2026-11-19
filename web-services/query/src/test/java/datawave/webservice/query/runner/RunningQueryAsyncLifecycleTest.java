@@ -18,6 +18,7 @@ import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -548,6 +549,81 @@ public class RunningQueryAsyncLifecycleTest {
             }
             assertEquals(ResultsPage.Status.NONE, query.next().getStatus());
         } finally {
+            releasePredictor.countDown();
+        }
+    }
+
+    /**
+     * Failed-return recovery must retain an older lease without attaching it to a newer initialization. A client-null check alone is insufficient: prediction
+     * records a replacement attempt before installing its client. Hold the older return across either that prediction window or a completed replacement.
+     *
+     * These are passing controls for ownership-based recovery. The replacement must keep its own client/iterator, while the older caller can separately claim
+     * and return its failed loan. No failed-return recovery may install the old client during the replacement's prediction.
+     *
+     * @param pendingPrediction
+     *            whether the replacement is still predicting rather than already installed when the old return fails
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void failedOldCloseDoesNotOverwriteReplacementInitialization(boolean pendingPrediction) throws Exception {
+        RunningQuery query = query(executor(), Collections.<Object> singletonList("old-row").iterator(), 1);
+        AccumuloClient oldClient = query.getClient();
+        AccumuloClient replacement = mock(AccumuloClient.class);
+        AccumuloConnectionFactory factory = mock(AccumuloConnectionFactory.class);
+        CountDownLatch returning = new CountDownLatch(1);
+        CountDownLatch releaseReturn = new CountDownLatch(1);
+        CountDownLatch predicting = new CountDownLatch(1);
+        CountDownLatch releasePredictor = new CountDownLatch(1);
+        IOException originalFailure = new IOException("Old close failed during replacement initialization");
+        AtomicBoolean firstReturn = new AtomicBoolean(true);
+        doAnswer(invocation -> {
+            if (firstReturn.compareAndSet(true, false)) {
+                returning.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releaseReturn, 5, TimeUnit.SECONDS), "Old return was not released");
+                throw originalFailure;
+            }
+            return null;
+        }).when(factory).returnClient(oldClient);
+        ExecutorService requests = executor(2);
+        Future<?> close = requests.submit(() -> {
+            query.closeConnection(factory);
+            return null;
+        });
+        try {
+            assertTrue(returning.await(2, TimeUnit.SECONDS), "Old close did not reach return");
+            when(query.getLogic().getTransformIterator(query.getSettings()))
+                            .thenReturn(new TransformIterator<>(Collections.<Object> singletonList("new-row").iterator(), value -> value));
+            Future<?> initialization = null;
+            if (pendingPrediction) {
+                query.setPredictor(metric -> {
+                    predicting.countDown();
+                    assertTrue(Uninterruptibles.awaitUninterruptibly(releasePredictor, 5, TimeUnit.SECONDS), "Replacement predictor was not released");
+                    return Collections.emptySet();
+                });
+                initialization = requests.submit(() -> {
+                    query.setClient(replacement);
+                    return null;
+                });
+                assertTrue(predicting.await(2, TimeUnit.SECONDS), "Replacement did not enter prediction");
+                assertNull(query.getClient(), "Prediction must precede replacement installation");
+            } else {
+                query.setClient(replacement);
+            }
+            releaseReturn.countDown();
+            ExecutionException failure = assertThrows(ExecutionException.class, () -> close.get(2, TimeUnit.SECONDS));
+            assertSame(originalFailure, failure.getCause());
+            if (pendingPrediction) {
+                assertNull(query.getClient(), "Failed old close installed its client into a newer prediction");
+                releasePredictor.countDown();
+                initialization.get(2, TimeUnit.SECONDS);
+            }
+            assertSame(replacement, query.getClient(), "Failed old close overwrote the replacement lease");
+            assertSame(oldClient, query.releaseClientOnInitializationFailure(oldClient), "The older caller could not claim its failed loan");
+            factory.returnClient(oldClient);
+            assertSame(replacement, query.getClient(), "Releasing the old loan detached the replacement");
+            assertEquals(Collections.singletonList("new-row"), query.next().getResults());
+        } finally {
+            releaseReturn.countDown();
             releasePredictor.countDown();
         }
     }
