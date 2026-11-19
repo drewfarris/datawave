@@ -10,6 +10,7 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -65,6 +66,12 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
      */
     private static final int RESULTS_THREAD_QUEUE_CAPACITY = 2;
 
+    /**
+     * A producer can finish before a bounded executor has returned its worker to the available pool. Retry a rejected submission only when another result is
+     * needed, with a short wait bounded by the page deadline.
+     */
+    private static final long RESULTS_THREAD_RETRY_WAIT_MS = 10;
+
     private static Logger log = Logger.getLogger(RunningQuery.class);
 
     private transient AccumuloClient client = null;
@@ -89,7 +96,13 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
     private final AtomicInteger gotNext = new AtomicInteger(0);
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile boolean resultsThreadFinished = false;
+    // Termination is distinct from yielding a worker between pages; only successful initialization reopens an execution.
+    private volatile boolean resultsThreadStopped = true;
     private final AtomicLong resultsThreadGeneration = new AtomicLong(0);
+    // Guarded by running. Producers capture this counter buffer so a callback that outlives reset cannot write into the live metric.
+    private transient BaseQueryMetric resultsThreadMetric;
+    // Guarded by running; unlike the externally managed activeCall, this tracks actual page consumption.
+    private boolean pageInProgress = false;
     private final AtomicBoolean forcedReturn = new AtomicBoolean(false);
     private QueryPredictor predictor = null;
     private long maxResults = 0;
@@ -207,7 +220,7 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
 
         try {
             addNDC();
-            resetResultsThreadState();
+            long generation = resetResultsThreadState();
             applyPrediction(null);
             this.client = client;
             if (this.client instanceof WrappedAccumuloClient && this.logic.getClientConfig() != null) {
@@ -233,6 +246,11 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             this.getMetric().setSetupTime((System.currentTimeMillis() - start));
             this.getMetric().setLifecycle(QueryMetric.Lifecycle.INITIALIZED);
             testForUncaughtException(0);
+            synchronized (running) {
+                if (generation == resultsThreadGeneration.get()) {
+                    resultsThreadStopped = false;
+                }
+            }
             // TODO: applyPrediction("Plan");
         } catch (Exception e) {
             log.error(e.getMessage(), e);
@@ -258,9 +276,11 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
         }
     }
 
-    private void resetResultsThreadState() {
+    private long resetResultsThreadState() {
         terminateResultsThread();
+        long generation;
         synchronized (running) {
+            generation = resultsThreadGeneration.get();
             resultsThreadQueue.clear();
             hasNext.set(0);
             gotNext.set(0);
@@ -271,22 +291,33 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             numResults = 0;
             currentTimeoutcount = 0;
             currentThread = null;
+            pageInProgress = false;
+            // The replacement transformer starts with fresh work counters. Reset the live budget before next() can enforce maxWork.
+            resetWorkMetrics(this.getMetric());
+            resultsThreadMetric = new QueryMetric();
+            if (iter != null && settings.getUncaughtExceptionHandler() != null) {
+                // Renew the handler before initialization gives it to new scanner/planner threads.
+                // Threads retaining the previous handler cannot report failures into this execution.
+                settings.setUncaughtExceptionHandler(new QueryUncaughtExceptionHandler());
+            }
         }
         synchronized (forcedReturn) {
             currentPageCount = 0;
             forcedReturn.set(false);
         }
+        return generation;
     }
 
     private void startResultsThread() {
         synchronized (running) {
-            if (useResultsThread && executor != null && !running.get() && !resultsThreadFinished && resultsThreadException == null && !finished && !canceled
-                            && !forcedReturn.get() && resultsThreadQueue.remainingCapacity() > 0) {
+            if (useResultsThread && executor != null && !running.get() && !resultsThreadFinished && !resultsThreadStopped && resultsThreadException == null
+                            && !finished && !canceled && !forcedReturn.get() && resultsThreadQueue.remainingCapacity() > 0) {
                 long generation = resultsThreadGeneration.get();
                 TransformIterator<?,?> iterator = iter;
+                BaseQueryMetric workMetric = resultsThreadMetric;
                 running.set(true);
                 try {
-                    future = executor.submit(() -> getResultsThread(generation, iterator));
+                    future = executor.submit(() -> getResultsThread(generation, iterator, workMetric));
                 } catch (RuntimeException e) {
                     running.set(false);
                     throw e;
@@ -296,24 +327,30 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
     }
 
     private boolean isCurrentResultsThread(long generation) {
-        return generation == resultsThreadGeneration.get() && running.get() && !finished && !canceled;
+        return generation == resultsThreadGeneration.get() && running.get() && !resultsThreadStopped && !finished && !canceled;
     }
 
     /**
      * This is the results thread which will pull results from the iterator and add them to a bounded blocking queue. The queue allows a small amount of
-     * read-ahead. When the queue is full, the task returns its worker to the executor; consuming a result makes the producer eligible to run again. The hasNext
-     * and gotNext counters track calls on the underlying iterator and are decremented once a result is acknowledged in RunningQuery.next().
+     * read-ahead. While a page is being consumed, the producer waits for queue capacity instead of repeatedly resubmitting itself. Between requests, a full
+     * queue returns the worker to the executor. The hasNext and gotNext counters track calls on the underlying iterator and are decremented once a result is
+     * acknowledged in RunningQuery.next().
      *
      * @param generation
      *            the execution to which this producer belongs
      * @param iterator
      *            the iterator captured for this execution
+     * @param workMetric
+     *            the metric buffer captured for this execution
      * @return false once the producer has yielded or finished
      */
-    private Object getResultsThread(long generation, TransformIterator<?,?> iterator) {
+    private Object getResultsThread(long generation, TransformIterator<?,?> iterator, BaseQueryMetric workMetric) {
         try {
             while (isCurrentResultsThread(generation)) {
                 synchronized (running) {
+                    while (isCurrentResultsThread(generation) && resultsThreadQueue.remainingCapacity() == 0 && pageInProgress && !forcedReturn.get()) {
+                        running.wait();
+                    }
                     if (!isCurrentResultsThread(generation) || resultsThreadQueue.remainingCapacity() == 0) {
                         break;
                     }
@@ -354,7 +391,13 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
 
                 // The iterator may update metrics even when it produces no transformed result.
                 if (isCurrentResultsThread(generation) && iterator.getTransformer() instanceof WritesQueryMetrics) {
-                    ((WritesQueryMetrics) iterator.getTransformer()).writeQueryMetrics(this.getMetric());
+                    // Callbacks may outlive cancellation. Keep their writes off the live metric and publish only under the generation lock.
+                    ((WritesQueryMetrics) iterator.getTransformer()).writeQueryMetrics(workMetric);
+                    synchronized (running) {
+                        if (isCurrentResultsThread(generation)) {
+                            publishWorkMetrics(workMetric);
+                        }
+                    }
                 }
             }
         } catch (Exception e) {
@@ -374,6 +417,25 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
         }
 
         return false;
+    }
+
+    private void resetWorkMetrics(BaseQueryMetric metric) {
+        metric.setSourceCount(0);
+        metric.setNextCount(0);
+        metric.setSeekCount(0);
+        metric.setYieldCount(0);
+        metric.setDocRanges(0);
+        metric.setFiRanges(0);
+    }
+
+    private void publishWorkMetrics(BaseQueryMetric workMetric) {
+        BaseQueryMetric metric = this.getMetric();
+        metric.setSourceCount(workMetric.getSourceCount());
+        metric.setNextCount(workMetric.getNextCount());
+        metric.setSeekCount(workMetric.getSeekCount());
+        metric.setYieldCount(workMetric.getYieldCount());
+        metric.setDocRanges(workMetric.getDocRanges());
+        metric.setFiRanges(workMetric.getFiRanges());
     }
 
     private void recordResultsThreadException(Exception e) {
@@ -411,52 +473,15 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
      *             if there is a timeout
      */
     private boolean hasNext(long pageStartTime) throws TimeoutException {
-        if (!useResultsThread || executor == null) {
+        if (useResultsThread && executor != null) {
+            return waitForResults(hasNext, pageStartTime);
+        } else {
             if (!this.finished && !this.canceled && this.iter.hasNext()) {
                 hasNext.incrementAndGet();
                 return true;
+            } else {
+                return false;
             }
-            return false;
-        }
-        long generation = resultsThreadGeneration.get();
-        while (true) {
-            synchronized (running) {
-                // Termination must not restart the iterator belonging to this request.
-                if (generation != resultsThreadGeneration.get()) {
-                    return false;
-                }
-                startResultsThread();
-            }
-            synchronized (hasNext) {
-                while (hasNext.get() == 0 && running.get() && !this.finished && !this.canceled && generation == resultsThreadGeneration.get()) {
-                    long timeout = getResultsWaitTimeout(pageStartTime);
-                    try {
-                        if (log.isDebugEnabled()) {
-                            log.debug("hasNext waiting for " + timeout + " ms");
-                        }
-                        hasNext.wait(timeout);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        // if we got interrupted, then just return false
-                        return false;
-                    }
-                }
-                throwResultsThreadException();
-                if (forcedReturn.get() && hasNext.get() == 0) {
-                    throw new TimeoutException("Query page return was forced");
-                }
-                if (generation != resultsThreadGeneration.get() || this.finished || this.canceled) {
-                    return false;
-                }
-                if (hasNext.get() > 0) {
-                    return true;
-                }
-                if (resultsThreadFinished) {
-                    log.debug("hasNext returned false.  No more results");
-                    return false;
-                }
-            }
-            // Retry outside the wait monitor when a producer yields after our scheduling attempt.
         }
     }
 
@@ -472,29 +497,20 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
      */
     private Object getNext(long pageStartTime) throws TimeoutException {
         if (useResultsThread && executor != null) {
-            startResultsThread();
+            if (!waitForResults(gotNext, pageStartTime)) {
+                return null;
+            }
             Object result;
             synchronized (gotNext) {
-                while (gotNext.get() == 0 && running.get() && !this.finished && !this.canceled) {
-                    long timeout = getResultsWaitTimeout(pageStartTime);
-                    try {
-                        if (log.isDebugEnabled()) {
-                            log.debug("getNext waiting for " + timeout + " ms");
-                        }
-                        gotNext.wait(timeout);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        // if we got interrupted, then just return null
-                        return null;
-                    }
-                }
                 throwResultsThreadException();
                 if (forcedReturn.get()) {
                     throw new TimeoutException("Query page return was forced");
                 }
                 result = resultsThreadQueue.poll();
             }
-            startResultsThread();
+            synchronized (running) {
+                running.notifyAll();
+            }
             return result;
         } else {
             Object o = iter.next();
@@ -506,6 +522,66 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             }
 
             return o;
+        }
+    }
+
+    private boolean waitForResults(AtomicInteger available, long pageStartTime) throws TimeoutException {
+        long generation = resultsThreadGeneration.get();
+        while (true) {
+            synchronized (available) {
+                throwResultsThreadException();
+                if (forcedReturn.get() && (available == gotNext || available.get() == 0)) {
+                    throw new TimeoutException("Query page return was forced");
+                }
+                if (generation != resultsThreadGeneration.get() || finished || canceled) {
+                    return false;
+                }
+                if (available.get() > 0) {
+                    return true;
+                }
+                if (resultsThreadFinished || resultsThreadStopped) {
+                    return false;
+                }
+                getResultsWaitTimeout(pageStartTime);
+            }
+
+            // Submit outside the wait monitor: the producer publishes state under running,
+            // then notifies the result monitors after releasing that lock.
+            boolean rejected = false;
+            try {
+                synchronized (running) {
+                    // Termination must not restart the iterator belonging to this request.
+                    if (generation != resultsThreadGeneration.get()) {
+                        return false;
+                    }
+                    startResultsThread();
+                }
+            } catch (RejectedExecutionException e) {
+                if (executor.isShutdown()) {
+                    throw e;
+                }
+                rejected = true;
+            }
+            synchronized (available) {
+                throwResultsThreadException();
+                if (generation != resultsThreadGeneration.get()) {
+                    return false;
+                }
+                if (available.get() == 0 && !finished && !canceled && !resultsThreadFinished && !resultsThreadStopped) {
+                    long timeout = getResultsWaitTimeout(pageStartTime);
+                    if (rejected || !running.get()) {
+                        // A yielded producer is not iterator exhaustion. Wait briefly before
+                        // retrying; a successful submission can still race executor handoff.
+                        timeout = Math.min(timeout, RESULTS_THREAD_RETRY_WAIT_MS);
+                    }
+                    try {
+                        available.wait(timeout);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        return false;
+                    }
+                }
+            }
         }
     }
 
@@ -537,10 +613,12 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
     public void terminateResultsThread() {
         Future<Object> resultsFuture;
         synchronized (running) {
+            resultsThreadStopped = true;
             resultsThreadGeneration.incrementAndGet();
             running.set(false);
             resultsFuture = future;
             future = null;
+            running.notifyAll();
         }
         if (resultsFuture != null) {
             // Interrupt pending iterator work. The generation prevents late results from
@@ -593,6 +671,7 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
         boolean hitIntermediateResult = false;
         boolean hitShortCircuitForLongRunningQuery = false;
         boolean hitForcedPageReturn = false;
+        boolean hitResultsWaitTimeout = false;
 
         synchronized (forcedReturn) {
             currentPageCount = 0;
@@ -601,23 +680,24 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
 
         long currentPageBytes = 0;
         int maxPageSize = Math.min(this.settings.getPagesize(), this.logic.getMaxPageSize());
+        boolean asynchronous = useResultsThread && executor != null;
 
         int returnPageCount = 0;
 
         try {
             addNDC();
+            synchronized (running) {
+                pageInProgress = true;
+                running.notifyAll();
+            }
 
             // test for any exceptions prior to loop as hasNext() would likely be false;
             testForUncaughtException(resultList.size());
 
-            // start up the results thread if needed
-            startResultsThread();
-
             try {
-                while (!this.finished && hasNext(pageStartTime)) {
-                    if (log.isDebugEnabled()) {
-                        log.debug("hasNext(" + pageStartTime + ") returned");
-                    }
+                // Synchronous iterators retain their existing look-ahead behavior. Async pages
+                // check their limits before requesting work that might need an executor worker.
+                while (!this.finished && (asynchronous || hasNext(pageStartTime))) {
                     // if we are canceled, then break out
                     if (this.canceled) {
                         log.info("Query has been cancelled, aborting query.next call");
@@ -655,6 +735,13 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                         log.info("Query logic max work has been reached, aborting query.next call");
                         this.getMetric().setLifecycle(QueryMetric.Lifecycle.MAXWORK);
                         break;
+                    }
+                    // A complete page needs no further iterator work or executor capacity.
+                    if (asynchronous && !hasNext(pageStartTime)) {
+                        break;
+                    }
+                    if (log.isDebugEnabled()) {
+                        log.debug("hasNext(" + pageStartTime + ") returned");
                     }
                     // if we are the specified amount on the way to timing out on this call and we have results,
                     // determine whether we are on track to having enough results
@@ -714,6 +801,7 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                     testForUncaughtException(resultList.size());
                 }
             } catch (TimeoutException te) {
+                hitResultsWaitTimeout = true;
                 log.info("Hit the timeout waiting for a result");
                 // This means the iter.hasNext() call didn't return within the allotted time. If this is a long running query,
                 // then we want to signal that the caller should call next to keep going (as opposed to just returning the
@@ -750,6 +838,10 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             terminateResultsThread();
             throw e;
         } finally {
+            synchronized (running) {
+                pageInProgress = false;
+                running.notifyAll();
+            }
             synchronized (forcedReturn) {
                 returnPageCount = currentPageCount;
                 hitForcedPageReturn = forcedReturn.get();
@@ -777,7 +869,7 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             // we also indicate whether we returned less than the requested page size in the response
             ResultsPage resultsPage = new ResultsPage(resultList,
                             ((hasNext.get() > 0 && numResults < this.maxResults && returnPageCount < maxPageSize) || hitIntermediateResult
-                                            || hitShortCircuitForLongRunningQuery || hitForcedPageReturn) ? ResultsPage.Status.PARTIAL
+                                            || hitShortCircuitForLongRunningQuery || hitForcedPageReturn || hitResultsWaitTimeout) ? ResultsPage.Status.PARTIAL
                                                             : ResultsPage.Status.COMPLETE);
 
             return resultsPage;
