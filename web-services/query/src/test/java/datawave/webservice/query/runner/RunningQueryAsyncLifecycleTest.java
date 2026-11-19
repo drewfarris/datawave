@@ -2,6 +2,7 @@ package datawave.webservice.query.runner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -12,7 +13,9 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.ArrayList;
@@ -23,6 +26,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -54,6 +58,7 @@ import datawave.core.query.cache.ResultsPage;
 import datawave.core.query.configuration.GenericQueryConfiguration;
 import datawave.core.query.logic.QueryLogic;
 import datawave.core.query.logic.WritesQueryMetrics;
+import datawave.core.query.predict.QueryPredictor;
 import datawave.microservice.query.QueryImpl;
 import datawave.microservice.querymetric.BaseQueryMetric;
 import datawave.microservice.querymetric.QueryMetricFactoryImpl;
@@ -61,6 +66,7 @@ import datawave.security.authorization.DatawavePrincipal;
 import datawave.security.authorization.DatawaveUser;
 import datawave.security.authorization.SubjectIssuerDNPair;
 import datawave.security.util.DnProperties;
+import datawave.webservice.query.exception.QueryException;
 import datawave.webservice.query.util.QueryUncaughtExceptionHandler;
 
 /**
@@ -265,10 +271,17 @@ public class RunningQueryAsyncLifecycleTest {
         RunningQuery query = query(executor(), Collections.<Object> singletonList("new-row").iterator(), 1);
         CountDownLatch initializing = new CountDownLatch(1);
         CountDownLatch releaseInitializer = new CountDownLatch(1);
+        AtomicBoolean resourcesOpen = new AtomicBoolean();
         GenericQueryConfiguration configuration = mock(GenericQueryConfiguration.class);
+        doAnswer(invocation -> {
+            resourcesOpen.set(false);
+            return null;
+        }).when(query.getLogic()).close();
         when(query.getLogic().initialize(any(), any(), any())).thenAnswer(invocation -> {
             initializing.countDown();
             assertTrue(releaseInitializer.await(2, TimeUnit.SECONDS), "Initializer was not released");
+            // Model planning resources acquired after close has already cleaned up the previous ones.
+            resourcesOpen.set(true);
             return configuration;
         });
         Future<?> initialization = executor().submit(() -> {
@@ -281,6 +294,7 @@ public class RunningQueryAsyncLifecycleTest {
             releaseInitializer.countDown();
             initialization.get(2, TimeUnit.SECONDS);
             assertNull(query.getClient());
+            assertFalse(resourcesOpen.get(), "Resources acquired by the closed initializer were not released");
             assertEquals(ResultsPage.Status.NONE, query.next().getStatus(), "The closed initializer reopened production");
 
             // A new attempt after close is authorized to re-enable production.
@@ -288,6 +302,192 @@ public class RunningQueryAsyncLifecycleTest {
             assertEquals(Collections.singletonList("new-row"), query.next().getResults());
         } finally {
             releaseInitializer.countDown();
+        }
+    }
+
+    /**
+     * Reset terminated its producer and only later captured a generation and cleared cancellation state. A close/cancel completing inside the producer
+     * cancellation callback was adopted as reset's generation, allowing that already-overtaken reset to install another client and reopen production.
+     *
+     * The Future callback is outside the lifecycle lock. Gate that real cancellation boundary rather than an internal reset method: termination must remain
+     * responsive, and reset must retain its own generation even if cancellation completes slowly.
+     *
+     * @param closeQuery
+     *            whether closeConnection() rather than cancel() overtakes reset
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @SuppressWarnings("unchecked")
+    public void terminationDuringResetCancellationCannotBecomeTheResetGeneration(boolean closeQuery) throws Exception {
+        ExecutorService producer = executor();
+        CountDownLatch oldProducerBlocked = new CountDownLatch(1);
+        CountDownLatch releaseOldProducer = new CountDownLatch(1);
+        Iterator<Object> oldRows = new Iterator<>() {
+            private int count;
+
+            @Override
+            public boolean hasNext() {
+                if (count == 1) {
+                    oldProducerBlocked.countDown();
+                    assertTrue(Uninterruptibles.awaitUninterruptibly(releaseOldProducer, 5, TimeUnit.SECONDS), "Old producer was not released");
+                }
+                return count < 2;
+            }
+
+            @Override
+            public Object next() {
+                return count++ == 0 ? "old-row" : "old-prefetch";
+            }
+        };
+        RunningQuery query = query(producer, oldRows, 1);
+        assertEquals(Collections.singletonList("old-row"), query.next().getResults());
+        assertTrue(oldProducerBlocked.await(2, TimeUnit.SECONDS), "Old producer did not block");
+        Future<Object> handle = spy((Future<Object>) ReflectionTestUtils.getField(query, "future"));
+        CountDownLatch cancelEntered = new CountDownLatch(1);
+        CountDownLatch releaseCancel = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            Object result = invocation.callRealMethod();
+            cancelEntered.countDown();
+            assertTrue(Uninterruptibles.awaitUninterruptibly(releaseCancel, 5, TimeUnit.SECONDS), "Producer cancellation was not released");
+            return result;
+        }).when(handle).cancel(true);
+        ReflectionTestUtils.setField(query, "future", handle);
+        when(query.getLogic().getTransformIterator(query.getSettings()))
+                        .thenReturn(new TransformIterator<>(Collections.<Object> singletonList("new-row").iterator(), value -> value));
+        AccumuloClient oldClient = query.getClient();
+        AccumuloClient replacement = mock(AccumuloClient.class);
+        Future<?> initialization = executor().submit(() -> {
+            query.setClient(replacement);
+            return null;
+        });
+        try {
+            assertTrue(cancelEntered.await(2, TimeUnit.SECONDS), "Reset did not cancel its producer");
+            if (closeQuery) {
+                query.closeConnection(mock(AccumuloConnectionFactory.class));
+            } else {
+                query.cancel();
+            }
+            releaseCancel.countDown();
+            ExecutionException failure = assertThrows(ExecutionException.class, () -> initialization.get(2, TimeUnit.SECONDS));
+            assertInstanceOf(QueryException.class, failure.getCause(), "The overtaken initializer must fail before accepting its replacement client");
+            if (closeQuery) {
+                assertNull(query.getClient());
+            } else {
+                assertTrue(query.isCanceled(), "Reset cleared the cancellation that overtook it");
+                assertSame(oldClient, query.getClient(), "Cancel does not transfer ownership to the replacement client");
+            }
+            assertEquals(ResultsPage.Status.NONE, query.next().getStatus());
+
+            releaseOldProducer.countDown();
+            producer.submit(() -> {}).get(2, TimeUnit.SECONDS);
+            // Rejecting this attempt must still allow a later reset, after termination has finished, to start normally.
+            query.closeConnection(mock(AccumuloConnectionFactory.class));
+            query.setClient(mock(AccumuloClient.class));
+            assertEquals(Collections.singletonList("new-row"), query.next().getResults());
+        } finally {
+            releaseCancel.countDown();
+            releaseOldProducer.countDown();
+        }
+    }
+
+    /**
+     * Prediction runs after reset but before the replacement client is installed. Close/cancel in that interval was observed only by the final producer guard:
+     * setClient() still accepted the replacement client and initialized the logic. After close removed the query from the cache, that successful return left
+     * its newly acquired resources outside normal cleanup.
+     *
+     * Reject the overtaken attempt before transferring client ownership, so the reset caller's existing failure path can return its unused pooled client.
+     *
+     * @param closeQuery
+     *            whether closeConnection() rather than cancel() overtakes prediction
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void terminationDuringPredictionRejectsTheReplacementClient(boolean closeQuery) throws Exception {
+        RunningQuery query = query(executor(), Collections.<Object> singletonList("old-row").iterator(), 1);
+        CountDownLatch predicting = new CountDownLatch(1);
+        CountDownLatch releasePredictor = new CountDownLatch(1);
+        QueryPredictor<BaseQueryMetric> predictor = metric -> {
+            predicting.countDown();
+            assertTrue(Uninterruptibles.awaitUninterruptibly(releasePredictor, 5, TimeUnit.SECONDS), "Predictor was not released");
+            return Collections.emptySet();
+        };
+        query.setPredictor(predictor);
+        AccumuloClient oldClient = query.getClient();
+        AccumuloClient replacement = mock(AccumuloClient.class);
+        // Distinguish replacement initialization from the fixture's already-completed initial setup.
+        GenericQueryConfiguration replacementConfiguration = mock(GenericQueryConfiguration.class);
+        when(query.getLogic().initialize(any(), any(), any())).thenReturn(replacementConfiguration);
+        Future<?> initialization = executor().submit(() -> {
+            query.setClient(replacement);
+            return null;
+        });
+        try {
+            assertTrue(predicting.await(2, TimeUnit.SECONDS), "Initialization did not enter prediction");
+            if (closeQuery) {
+                query.closeConnection(mock(AccumuloConnectionFactory.class));
+            } else {
+                query.cancel();
+            }
+            releasePredictor.countDown();
+            ExecutionException failure = assertThrows(ExecutionException.class, () -> initialization.get(2, TimeUnit.SECONDS));
+            assertInstanceOf(QueryException.class, failure.getCause());
+            verify(query.getLogic(), never()).setupQuery(replacementConfiguration);
+            if (closeQuery) {
+                assertNull(query.getClient(), "The closed initializer installed its replacement client");
+            } else {
+                assertSame(oldClient, query.getClient(), "The canceled initializer installed its replacement client");
+            }
+            assertEquals(ResultsPage.Status.NONE, query.next().getStatus());
+        } finally {
+            releasePredictor.countDown();
+        }
+    }
+
+    /**
+     * Async pages checked maxWork before hasNext(), but the producer could publish enough work to exhaust that budget while the request waited. The request
+     * then consumed another row without rechecking the updated counters. Keep the first metric callback blocked after returning a one-row page, wait for the
+     * second request to need another row, and only then publish the exhausted budget.
+     *
+     * @param seekBudget
+     *            whether seekCount rather than nextCount reaches maxWork during the wait
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void workBudgetPublishedDuringHasNextWaitStopsThePage(boolean seekBudget) throws Exception {
+        ExecutorService producer = executor();
+        CountDownLatch writerEntered = new CountDownLatch(1);
+        CountDownLatch releaseWriter = new CountDownLatch(1);
+        AtomicBoolean firstWrite = new AtomicBoolean(true);
+        MetricsTransformer transformer = new MetricsTransformer(seekBudget ? 0 : 100, seekBudget ? 100 : 0) {
+            @Override
+            public void writeQueryMetrics(BaseQueryMetric metric) {
+                if (firstWrite.compareAndSet(true, false)) {
+                    writerEntered.countDown();
+                    assertTrue(Uninterruptibles.awaitUninterruptibly(releaseWriter, 5, TimeUnit.SECONDS), "Metric writer was not released");
+                }
+                super.writeQueryMetrics(metric);
+            }
+        };
+        RunningQuery query = query(producer, Collections.<Object> singletonList("unused").iterator(), 1);
+        when(query.getLogic().getMaxWork()).thenReturn(100L);
+        when(query.getLogic().getTransformIterator(query.getSettings()))
+                        .thenReturn(new TransformIterator<>(Arrays.<Object> asList("a", "b", "c").iterator(), transformer));
+        query.setClient(mock(AccumuloClient.class));
+        try {
+            assertEquals(Collections.singletonList("a"), query.next().getResults());
+            assertTrue(writerEntered.await(2, TimeUnit.SECONDS), "Metric writer did not block");
+            assertWorkMetrics(query, 0, 0);
+            Future<ResultsPage> page = executor().submit(query::next);
+            awaitResultWait(query, "hasNext");
+            releaseWriter.countDown();
+            ResultsPage result = page.get(2, TimeUnit.SECONDS);
+            assertEquals(ResultsPage.Status.NONE, result.getStatus(), "The page consumed another row after its work budget was exhausted");
+            assertTrue(result.getResults().isEmpty());
+            producer.submit(() -> {}).get(2, TimeUnit.SECONDS);
+            assertWorkMetrics(query, seekBudget ? 0 : 100, seekBudget ? 100 : 0);
+            assertEquals(BaseQueryMetric.Lifecycle.MAXWORK, query.getMetric().getLifecycle());
+        } finally {
+            releaseWriter.countDown();
         }
     }
 
