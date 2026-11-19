@@ -67,6 +67,7 @@ import datawave.security.authorization.DatawaveUser;
 import datawave.security.authorization.SubjectIssuerDNPair;
 import datawave.security.util.DnProperties;
 import datawave.webservice.query.exception.QueryException;
+import datawave.webservice.query.metric.QueryMetricsBean;
 import datawave.webservice.query.util.QueryUncaughtExceptionHandler;
 
 /**
@@ -302,6 +303,114 @@ public class RunningQueryAsyncLifecycleTest {
             assertEquals(Collections.singletonList("new-row"), query.next().getResults());
         } finally {
             releaseInitializer.countDown();
+        }
+    }
+
+    /**
+     * The stale-initializer cleanup handled normal returns only. An initializer/setup that acquired resources after close and then threw bypassed that cleanup,
+     * leaving its late resources open. Hold either phase across close, then fail after opening a resource; the original failure must still reach the caller
+     * while the late resource is reclaimed.
+     *
+     * @param failInSetup
+     *            whether setupQuery() rather than initialize() acquires the late resource and throws
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void initializationFailureAfterCloseReclaimsLateResources(boolean failInSetup) throws Exception {
+        RunningQuery query = query(executor(), Collections.<Object> singletonList("unused").iterator(), 1);
+        CountDownLatch initializing = new CountDownLatch(1);
+        CountDownLatch releaseInitializer = new CountDownLatch(1);
+        AtomicBoolean resourcesOpen = new AtomicBoolean();
+        IllegalStateException failure = new IllegalStateException("Initialization failed after close");
+        doAnswer(invocation -> {
+            resourcesOpen.set(false);
+            return null;
+        }).when(query.getLogic()).close();
+        if (failInSetup) {
+            doAnswer(invocation -> {
+                initializing.countDown();
+                assertTrue(releaseInitializer.await(2, TimeUnit.SECONDS), "Setup was not released");
+                resourcesOpen.set(true);
+                throw failure;
+            }).when(query.getLogic()).setupQuery(any());
+        } else {
+            when(query.getLogic().initialize(any(), any(), any())).thenAnswer(invocation -> {
+                initializing.countDown();
+                assertTrue(releaseInitializer.await(2, TimeUnit.SECONDS), "Initializer was not released");
+                resourcesOpen.set(true);
+                throw failure;
+            });
+        }
+        Future<?> initialization = executor().submit(() -> {
+            query.setClient(mock(AccumuloClient.class));
+            return null;
+        });
+        try {
+            assertTrue(initializing.await(2, TimeUnit.SECONDS), "Initialization did not reach its gate");
+            query.closeConnection(mock(AccumuloConnectionFactory.class));
+            releaseInitializer.countDown();
+            ExecutionException thrown = assertThrows(ExecutionException.class, () -> initialization.get(2, TimeUnit.SECONDS));
+            assertSame(failure, thrown.getCause(), "Cleanup must not replace the original initialization failure");
+            assertFalse(resourcesOpen.get(), "The exceptional initializer leaked resources acquired after close");
+            assertNull(query.getClient());
+            assertEquals(ResultsPage.Status.NONE, query.next().getStatus());
+        } finally {
+            releaseInitializer.countDown();
+        }
+    }
+
+    /**
+     * A full page returned before its metric callback completed. Reaching maxResults on the next request terminated the generation, so that callback's later
+     * publication was discarded even though its row had already been delivered by the same execution. This is normal completion, with no cancel or reset.
+     *
+     * Hold the callback while returning both the row and the final NONE page. All six counters must be accounted for before the final metric is sent, and
+     * remain intact when the canceled producer's callback actually finishes.
+     */
+    @Test
+    public void resultLimitCompletionPreservesDeliveredRowWorkMetrics() throws Exception {
+        ExecutorService producer = executor();
+        CountDownLatch writerEntered = new CountDownLatch(1);
+        CountDownLatch releaseWriter = new CountDownLatch(1);
+        MetricsTransformer transformer = new MetricsTransformer(7, 3) {
+            @Override
+            public void writeQueryMetrics(BaseQueryMetric metric) {
+                writerEntered.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releaseWriter, 5, TimeUnit.SECONDS), "Metric callback was not released");
+                super.writeQueryMetrics(metric);
+            }
+        };
+        RunningQuery query = query(producer, Collections.<Object> singletonList("unused").iterator(), 1);
+        query.getSettings().setMaxResultsOverridden(true);
+        query.getSettings().setMaxResultsOverride(1L);
+        when(query.getLogic().getTransformIterator(query.getSettings()))
+                        .thenReturn(new TransformIterator<>(Collections.<Object> singletonList("delivered-row").iterator(), transformer));
+        when(query.getLogic().getCollectQueryMetrics()).thenReturn(true);
+        QueryMetricsBean metrics = mock(QueryMetricsBean.class);
+        AtomicReference<List<Long>> finalPublishedCounters = new AtomicReference<>();
+        doAnswer(invocation -> {
+            BaseQueryMetric metric = invocation.getArgument(0);
+            if (metric.getLifecycle() == BaseQueryMetric.Lifecycle.MAXRESULTS) {
+                // Capture values when sent; retaining the mutable metric reference would hide a later correction.
+                finalPublishedCounters.set(Arrays.asList(metric.getSourceCount(), metric.getNextCount(), metric.getSeekCount(), metric.getYieldCount(),
+                                metric.getDocRanges(), metric.getFiRanges()));
+            }
+            return null;
+        }).when(metrics).updateMetric(any());
+        query.setQueryMetrics(metrics);
+        query.setClient(mock(AccumuloClient.class));
+        try {
+            assertEquals(Collections.singletonList("delivered-row"), query.next().getResults());
+            assertTrue(writerEntered.await(2, TimeUnit.SECONDS), "Metric callback did not block");
+            assertEquals(ResultsPage.Status.NONE, query.next().getStatus());
+            assertWorkMetrics(query, 7, 3);
+            assertEquals(Arrays.asList(10L, 7L, 3L, 10L, 10L, 10L), finalPublishedCounters.get(),
+                            "The final metric was sent before accounting for its delivered row");
+            releaseWriter.countDown();
+            // Future cancellation is not task completion. This marker proves the callback finished on the same producer worker.
+            producer.submit(() -> {}).get(2, TimeUnit.SECONDS);
+            assertWorkMetrics(query, 7, 3);
+        } finally {
+            releaseWriter.countDown();
         }
     }
 

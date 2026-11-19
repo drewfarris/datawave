@@ -2,6 +2,7 @@ package datawave.webservice.query.runner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -11,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -36,6 +38,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import javax.ejb.EJBContext;
@@ -52,6 +60,8 @@ import org.apache.commons.collections4.iterators.TransformIterator;
 import org.apache.commons.lang.StringUtils;
 import org.apache.commons.lang.time.DateUtils;
 import org.apache.commons.lang3.tuple.Pair;
+import org.apache.commons.pool2.PooledObject;
+import org.apache.commons.pool2.impl.DefaultPooledObject;
 import org.apache.log4j.Logger;
 import org.jboss.resteasy.mock.MockDispatcherFactory;
 import org.jboss.resteasy.mock.MockHttpRequest;
@@ -64,6 +74,7 @@ import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -75,11 +86,15 @@ import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 
 import com.google.common.collect.HashMultimap;
+import com.google.common.util.concurrent.Uninterruptibles;
 
 import datawave.accumulo.inmemory.InMemoryAccumuloClient;
 import datawave.accumulo.inmemory.InMemoryInstance;
 import datawave.core.common.audit.PrivateAuditConstants;
+import datawave.core.common.connection.AccumuloClientPool;
+import datawave.core.common.connection.AccumuloClientPoolFactory;
 import datawave.core.common.connection.AccumuloConnectionFactory;
+import datawave.core.common.connection.AccumuloConnectionFactoryImpl;
 import datawave.core.query.cache.ResultsPage;
 import datawave.core.query.configuration.GenericQueryConfiguration;
 import datawave.core.query.logic.BaseQueryLogic;
@@ -358,6 +373,196 @@ public class QueryExecutorBeanTest {
         verify(connectionFactory, times(expectedReleases)).returnClient(client);
         verify(logic).initialize(eq(client), eq(settings), any());
         verify(transaction).commit();
+    }
+
+    /**
+     * Close returned an initializer's installed client to the pool. If initialization subsequently threw, reset's error path returned its local client again.
+     * After another query borrowed that same client, the stale return released the other query's active lease and removed its tracking entry.
+     *
+     * Exercise reset/adminClose and real factory/pool methods with mocked clients. Hold initialization across close, reborrow the released client, then fail
+     * after acquiring a late resource. The other lease must remain active and the late resource must be reclaimed.
+     *
+     * @param failInSetup
+     *            whether setupQuery() rather than initialize() fails after close
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @Timeout(15)
+    @SuppressWarnings("unchecked")
+    public void testResetFailureAfterCloseDoesNotReturnAnotherQueriesLease(boolean failInSetup) throws Exception {
+        AccumuloClient pooledClient = mock(AccumuloClient.class);
+        AccumuloClientPool pool = singleClientPool(pooledClient);
+        AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+        QueryImpl settings = createNewQuery();
+        settings.setOwner("owner");
+        QueryLogic<Object> logic = mock(QueryLogic.class);
+        RunningQuery runningQuery = queryForReset(mock(AccumuloClient.class), settings, logic);
+        runningQuery.closeConnection(factory);
+        configureResetOwner(factory);
+        String id = settings.getId().toString();
+        cache.put(id, runningQuery);
+        CountDownLatch initializing = new CountDownLatch(1);
+        CountDownLatch releaseInitializer = new CountDownLatch(1);
+        AtomicBoolean resourcesOpen = new AtomicBoolean();
+        doAnswer(invocation -> {
+            resourcesOpen.set(false);
+            return null;
+        }).when(logic).close();
+        if (failInSetup) {
+            doAnswer(invocation -> {
+                initializing.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releaseInitializer, 5, TimeUnit.SECONDS), "Setup was not released");
+                resourcesOpen.set(true);
+                throw new IllegalStateException("Setup failed after close");
+            }).when(logic).setupQuery(any());
+        } else {
+            when(logic.initialize(any(), any(), any())).thenAnswer(invocation -> {
+                initializing.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releaseInitializer, 5, TimeUnit.SECONDS), "Initializer was not released");
+                resourcesOpen.set(true);
+                throw new IllegalStateException("Initialization failed after close");
+            });
+        }
+        ExecutorService requests = Executors.newSingleThreadExecutor();
+        AccumuloClient otherOwner = null;
+        Future<?> reset = requests.submit(() -> bean.reset(id));
+        try {
+            assertTrue(initializing.await(2, TimeUnit.SECONDS), "Reset did not enter initialization");
+            assertSame(pooledClient, runningQuery.getClient());
+            bean.adminClose(id);
+            assertNull(cache.get(id));
+            assertNull(runningQuery.getClient());
+            assertEquals(0, pool.getNumActive(), "Close did not return its installed client");
+            otherOwner = pool.borrowObject(new HashMap<>());
+            assertSame(pooledClient, otherOwner, "The regression requires reuse of the returned client");
+            releaseInitializer.countDown();
+            ExecutionException failure = assertThrows(ExecutionException.class, () -> reset.get(2, TimeUnit.SECONDS));
+            assertInstanceOf(DatawaveWebApplicationException.class, failure.getCause());
+            assertEquals(1, pool.getNumActive(), "Reset returned a client already reborrowed by another query");
+            assertTrue(pool.connectorCameFromHere(otherOwner), "Reset removed the other query's lease tracking");
+            assertFalse(resourcesOpen.get(), "The exceptional initializer leaked its late resources");
+        } finally {
+            releaseInitializer.countDown();
+            requests.shutdownNow();
+            assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+            if (otherOwner != null && pool.connectorCameFromHere(otherOwner)) {
+                pool.returnObject(otherOwner);
+            }
+            logic.close();
+            pool.close();
+        }
+    }
+
+    /**
+     * A client rejected before installation still belongs to reset's caller. Close during prediction removes the query but cannot return that uninstalled
+     * client. Failure cleanup must return this unused lease, even though an earlier execution used and returned the identical pooled client object.
+     */
+    @Test
+    @Timeout(15)
+    @SuppressWarnings("unchecked")
+    public void testResetRejectedBeforeClientInstallationReturnsUnusedLease() throws Exception {
+        AccumuloClient pooledClient = mock(AccumuloClient.class);
+        AccumuloClientPool pool = singleClientPool(pooledClient);
+        AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+        QueryImpl settings = createNewQuery();
+        settings.setOwner("owner");
+        QueryLogic<Object> logic = mock(QueryLogic.class);
+        RunningQuery runningQuery = queryForReset(pool.borrowObject(new HashMap<>()), settings, logic);
+        runningQuery.closeConnection(factory);
+        configureResetOwner(factory);
+        String id = settings.getId().toString();
+        cache.put(id, runningQuery);
+        CountDownLatch predicting = new CountDownLatch(1);
+        CountDownLatch releasePredictor = new CountDownLatch(1);
+        QueryPredictor<BaseQueryMetric> predictor = metric -> {
+            predicting.countDown();
+            assertTrue(Uninterruptibles.awaitUninterruptibly(releasePredictor, 5, TimeUnit.SECONDS), "Predictor was not released");
+            return Collections.emptySet();
+        };
+        runningQuery.setPredictor(predictor);
+        ExecutorService requests = Executors.newSingleThreadExecutor();
+        Future<?> reset = requests.submit(() -> bean.reset(id));
+        try {
+            assertTrue(predicting.await(2, TimeUnit.SECONDS), "Reset did not enter prediction");
+            assertNull(runningQuery.getClient(), "Prediction must precede client installation");
+            bean.adminClose(id);
+            assertEquals(1, pool.getNumActive(), "Close returned a client it had not accepted");
+            releasePredictor.countDown();
+            assertThrows(ExecutionException.class, () -> reset.get(2, TimeUnit.SECONDS));
+            assertEquals(0, pool.getNumActive(), "Failure cleanup did not return the caller's unused client");
+            assertEquals(1, pool.getNumIdle());
+            verify(logic).initialize(eq(pooledClient), eq(settings), any());
+        } finally {
+            releasePredictor.countDown();
+            requests.shutdownNow();
+            assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+            pool.close();
+        }
+    }
+
+    /**
+     * Accounting can fail after borrow but before setClient() is invoked. That freshly borrowed lease is caller-owned and must be returned independently of any
+     * previous initialization record for the same pooled client object.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testResetFailureBeforeInitializationReturnsUnusedLease() throws Exception {
+        AccumuloClient pooledClient = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(pooledClient)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            QueryImpl settings = createNewQuery();
+            settings.setOwner("owner");
+            QueryLogic<Object> logic = mock(QueryLogic.class);
+            RunningQuery runningQuery = queryForReset(pool.borrowObject(new HashMap<>()), settings, logic);
+            runningQuery.closeConnection(factory);
+            configureResetOwner(factory);
+            cache.put(settings.getId().toString(), runningQuery);
+            when(logic.isQueryLimiterEnabled()).thenReturn(true);
+            when(queryLimiter.checkForLimits(any(), any(), any())).thenReturn(QueryLimiterResponse.hasNotMetLimit());
+            doThrow(new IOException("Accounting failed after borrow")).when(queryLimiter).countQueryTowardsLimits(any(), any(), any(), any());
+
+            assertThrows(DatawaveWebApplicationException.class, () -> bean.reset(settings.getId().toString()));
+            assertEquals(0, pool.getNumActive(), "A failure before initialization leaked the unused lease");
+            assertEquals(1, pool.getNumIdle());
+            verify(logic).initialize(eq(pooledClient), eq(settings), any());
+        }
+    }
+
+    private AccumuloClientPool singleClientPool(AccumuloClient client) {
+        AccumuloClientPoolFactory poolFactory = new AccumuloClientPoolFactory("test", "test", "unused", "unused") {
+            @Override
+            public PooledObject<AccumuloClient> makeObject() {
+                return new DefaultPooledObject<>(client);
+            }
+        };
+        AccumuloClientPool pool = new AccumuloClientPool(poolFactory);
+        pool.setMaxTotal(1);
+        pool.setMaxIdle(1);
+        return pool;
+    }
+
+    private AccumuloConnectionFactoryImpl factoryWithPool(AccumuloClientPool pool) {
+        AccumuloConnectionFactoryImpl factory = mock(AccumuloConnectionFactoryImpl.class, CALLS_REAL_METHODS);
+        ReflectionTestUtils.setField(factory, "log", org.slf4j.LoggerFactory.getLogger(AccumuloConnectionFactoryImpl.class));
+        ReflectionTestUtils.setField(factory, "defaultPoolName", "review");
+        ReflectionTestUtils.setField(factory, "pools",
+                        Collections.singletonMap("review", Collections.singletonMap(AccumuloConnectionFactory.Priority.NORMAL, pool)));
+        return factory;
+    }
+
+    private void configureResetOwner(AccumuloConnectionFactory factory) throws Exception {
+        UserTransaction transaction = mock(UserTransaction.class);
+        when(transaction.getStatus()).thenReturn(Status.STATUS_ACTIVE);
+        when(ctx.getUserTransaction()).thenReturn(transaction);
+        when(ctx.getCallerPrincipal()).thenReturn(() -> "owner");
+        ReflectionTestUtils.setField(bean, "connectionFactory", factory);
+    }
+
+    private RunningQuery queryForReset(AccumuloClient client, QueryImpl settings, QueryLogic<Object> logic) throws Exception {
+        when(logic.initialize(any(), any(), any())).thenReturn(mock(GenericQueryConfiguration.class));
+        when(logic.getTransformIterator(settings)).thenReturn(new TransformIterator<>(Collections.singletonList("row").iterator(), value -> value));
+        when(logic.getAuditType(settings)).thenReturn(AuditType.NONE);
+        return new RunningQuery(client, AccumuloConnectionFactory.Priority.NORMAL, logic, settings, null, null, new QueryMetricFactoryImpl());
     }
 
     private QueryImpl createNewQuery() throws Exception {
