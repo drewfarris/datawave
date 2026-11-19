@@ -1292,6 +1292,7 @@ public class QueryExecutorBean implements QueryExecutor {
         AccumuloClient client = null;
         RunningQuery query = null;
         boolean resetStarted = false;
+        boolean initializationStarted = false;
         boolean locked = false;
         try {
             ctx.getUserTransaction().begin();
@@ -1369,6 +1370,7 @@ public class QueryExecutorBean implements QueryExecutor {
             // Consider this query to be active when determining query limits.
             markQueryAsActive(query.getLogic(), id, settings.getUserDN(), settings.getSystemFrom(), settings.getQueryLogicName());
 
+            initializationStarted = true;
             query.setClient(client);
             CreateQuerySessionIDFilter.QUERY_ID.set(id);
             return response;
@@ -1386,15 +1388,11 @@ public class QueryExecutorBean implements QueryExecutor {
             log.error("Exception caught on resetting query", e);
             try {
                 if (null != client) {
-                    /*
-                     * if the query exists, we need to make sure the connection isn't set on it because the "proper" work flow is to close and/or cancel the
-                     * query after a failure. we don't want to purge it from the query cache, so setting the connector to null avoids having the connector
-                     * returned multiple times to the connector pool.
-                     */
-                    if (query != null) {
-                        query.setClient(null);
+                    // Before setClient, the lease belongs to this caller. Afterward, close may already have returned that initialization's lease.
+                    AccumuloClient failedClient = initializationStarted ? query.releaseClientOnInitializationFailure(client) : client;
+                    if (failedClient != null) {
+                        connectionFactory.returnClient(failedClient);
                     }
-                    connectionFactory.returnClient(client);
                 }
             } catch (Exception e2) {
                 log.error("Error returning connection on failed reset", e2);

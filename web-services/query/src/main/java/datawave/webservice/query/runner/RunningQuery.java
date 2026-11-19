@@ -75,6 +75,19 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
     private static Logger log = Logger.getLogger(RunningQuery.class);
 
     private transient AccumuloClient client = null;
+    // Guarded by running. A pooled client can be reused, so ownership belongs to an initialization attempt, not to client identity alone.
+    private transient ClientLease clientLease;
+    private transient ClientLease initializationClientLease;
+
+    private static class ClientLease {
+        private final AccumuloClient client;
+        private boolean returnClaimed;
+
+        private ClientLease(AccumuloClient client) {
+            this.client = client;
+        }
+    }
+
     private AccumuloConnectionFactory.Priority connectionPriority = null;
     private transient QueryLogic<?> logic = null;
     private Query settings = null;
@@ -214,10 +227,21 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
         // if we are setting this null, we shouldn't try to initialize
         // the internal logic
         if (client == null) {
-            this.client = null;
+            synchronized (running) {
+                if (clientLease != null) {
+                    clientLease.returnClaimed = true;
+                }
+                this.client = null;
+                clientLease = null;
+            }
             return;
         }
 
+        ClientLease initialization = new ClientLease(client);
+        synchronized (running) {
+            initializationClientLease = initialization;
+        }
+        boolean logicInitializationStarted = false;
         try {
             addNDC();
             long generation = resetResultsThreadState();
@@ -228,12 +252,14 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                     throw new QueryException(DatawaveErrorCode.QUERY_CANCELED, "Initialization was terminated before its client was installed");
                 }
                 this.client = client;
+                clientLease = initialization;
             }
-            if (this.client instanceof WrappedAccumuloClient && this.logic.getClientConfig() != null) {
-                ((WrappedAccumuloClient) this.client).updateClientConfig(this.logic.getClientConfig());
+            if (client instanceof WrappedAccumuloClient && this.logic.getClientConfig() != null) {
+                ((WrappedAccumuloClient) client).updateClientConfig(this.logic.getClientConfig());
             }
             long start = System.currentTimeMillis();
-            GenericQueryConfiguration configuration = this.logic.initialize(this.client, this.settings, this.calculatedAuths);
+            logicInitializationStarted = true;
+            GenericQueryConfiguration configuration = this.logic.initialize(client, this.settings, this.calculatedAuths);
             if (!isCurrentInitialization(generation)) {
                 // Close may have returned the installed client while initialize() was still acquiring planning resources.
                 // Reclaim those late resources without accepting another client or running setup after termination.
@@ -276,6 +302,10 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                 }
             }
             this.getMetric().setError(e);
+            if (logicInitializationStarted) {
+                // initialize/setup may acquire resources after close has already run, including on their exceptional paths.
+                closeLogic();
+            }
             throw e;
         } finally {
             // update AbstractRunningQuery.lastUsed in case this operation took a long time
@@ -288,6 +318,32 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                     log.error(e.getMessage(), e);
                 }
             }
+        }
+    }
+
+    /**
+     * Claim the failed initialization's client for its caller to return. Close and failure cleanup share this claim so a late failure cannot return a client
+     * already released and reborrowed by another query. An attempt rejected before installation still owns its unused lease.
+     *
+     * @param failedClient
+     *            the client supplied to setClient()
+     * @return the client this caller must return, or null if another cleanup path already claimed it
+     */
+    public AccumuloClient releaseClientOnInitializationFailure(AccumuloClient failedClient) {
+        synchronized (running) {
+            ClientLease initialization = initializationClientLease;
+            if (initialization == null || initialization.client != failedClient) {
+                return failedClient;
+            }
+            if (initialization.returnClaimed) {
+                return null;
+            }
+            initialization.returnClaimed = true;
+            if (clientLease == initialization) {
+                client = null;
+                clientLease = null;
+            }
+            return failedClient;
         }
     }
 
@@ -643,6 +699,41 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
         cancelResultsFuture(resultsFuture);
     }
 
+    private void completeResultsThread() {
+        Future<Object> resultsFuture;
+        TransformIterator<?,?> iterator;
+        long generation;
+        synchronized (running) {
+            if (resultsThreadStopped || canceled) {
+                return;
+            }
+            iterator = iter;
+            resultsFuture = stopResultsThreadState();
+            generation = resultsThreadGeneration.get();
+        }
+        cancelResultsFuture(resultsFuture);
+
+        // The row is queued before its metric callback completes. At normal completion capture the exposed counters without waiting for that callback.
+        // Read outside the lifecycle lock, then publish only if close/reset has not superseded this completed execution.
+        if (iterator != null && iterator.getTransformer() instanceof WritesQueryMetrics) {
+            WritesQueryMetrics writer = (WritesQueryMetrics) iterator.getTransformer();
+            if (writer.hasMetrics()) {
+                BaseQueryMetric workMetric = new QueryMetric();
+                workMetric.setSourceCount(writer.getSourceCount());
+                workMetric.setNextCount(writer.getNextCount());
+                workMetric.setSeekCount(writer.getSeekCount());
+                workMetric.setYieldCount(writer.getYieldCount());
+                workMetric.setDocRanges(writer.getDocRanges());
+                workMetric.setFiRanges(writer.getFiRanges());
+                synchronized (running) {
+                    if (generation == resultsThreadGeneration.get() && !canceled) {
+                        publishWorkMetrics(workMetric);
+                    }
+                }
+            }
+        }
+    }
+
     // Caller holds running. Interrupting the Future and notifying result monitors happen after releasing that lock.
     private Future<Object> stopResultsThreadState() {
         resultsThreadStopped = true;
@@ -867,6 +958,15 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             // if the last hasNext() call failed, then we would catch the exception here
             testForUncaughtException(resultList.size());
 
+            if (resultList.isEmpty() && !hitIntermediateResult && !hitShortCircuitForLongRunningQuery) {
+                // Account for pending work before finally submits the final metric.
+                if (asynchronous) {
+                    completeResultsThread();
+                } else {
+                    terminateResultsThread();
+                }
+            }
+
             // Update the metric
             long now = System.currentTimeMillis();
             this.getMetric().addPageTime(currentPageCount, now - pageStartTime, pageStartTime, now);
@@ -942,7 +1042,6 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                 }
             } else {
                 log.info("Returning final empty page");
-                terminateResultsThread();
                 // This query is done, we have no more results to return.
                 return new ResultsPage(Collections.emptyList(), ResultsPage.Status.NONE);
             }
@@ -1020,27 +1119,55 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
     public void closeConnection(AccumuloConnectionFactory factory) throws Exception {
         this.getMetric().setLifecycle(BaseQueryMetric.Lifecycle.CLOSED);
 
-        // terminate the results thread if any
-        terminateResultsThread();
-
-        if (iter != null && iter.getTransformer() instanceof WritesResultCardinalities) {
-            ((WritesResultCardinalities) iter.getTransformer()).writeResultCardinalities();
+        Future<Object> resultsFuture;
+        AccumuloClient closingClient;
+        ClientLease closingLease;
+        TransformIterator<?,?> iterator;
+        long generation;
+        synchronized (running) {
+            resultsFuture = stopResultsThreadState();
+            generation = resultsThreadGeneration.get();
+            iterator = iter;
+            closingClient = client;
+            closingLease = clientLease;
+            if (closingLease != null) {
+                closingLease.returnClaimed = true;
+            }
+            client = null;
+            clientLease = null;
         }
+        cancelResultsFuture(resultsFuture);
 
-        if (client != null) {
-            try {
-                factory.returnClient(client);
-                client = null;
-            } finally {
-                // only push metrics if this RunningQuery was initialized
-                if (this.queryMetrics != null) {
-                    try {
-                        queryMetrics.updateMetric(this.getMetric());
-                    } catch (Exception e) {
-                        log.error(e.getMessage());
+        try {
+            if (iterator != null && iterator.getTransformer() instanceof WritesResultCardinalities) {
+                ((WritesResultCardinalities) iterator.getTransformer()).writeResultCardinalities();
+            }
+            if (closingClient != null) {
+                try {
+                    factory.returnClient(closingClient);
+                } finally {
+                    // only push metrics if this RunningQuery was initialized
+                    if (this.queryMetrics != null) {
+                        try {
+                            queryMetrics.updateMetric(this.getMetric());
+                        } catch (Exception e) {
+                            log.error(e.getMessage());
+                        }
                     }
                 }
             }
+        } catch (Exception e) {
+            synchronized (running) {
+                // Preserve retryable ownership after a failed return, without restoring it into a newer initialization.
+                if (generation == resultsThreadGeneration.get() && client == null && clientLease == null) {
+                    client = closingClient;
+                    clientLease = closingLease;
+                    if (closingLease != null) {
+                        closingLease.returnClaimed = false;
+                    }
+                }
+            }
+            throw e;
         }
 
         closeLogic();
