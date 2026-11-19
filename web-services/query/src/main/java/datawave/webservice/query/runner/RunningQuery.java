@@ -222,12 +222,24 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             addNDC();
             long generation = resetResultsThreadState();
             applyPrediction(null);
-            this.client = client;
+            synchronized (running) {
+                // Reject before accepting the pooled client: the caller still owns it and can return it on failure.
+                if (generation != resultsThreadGeneration.get() || canceled) {
+                    throw new QueryException(DatawaveErrorCode.QUERY_CANCELED, "Initialization was terminated before its client was installed");
+                }
+                this.client = client;
+            }
             if (this.client instanceof WrappedAccumuloClient && this.logic.getClientConfig() != null) {
                 ((WrappedAccumuloClient) this.client).updateClientConfig(this.logic.getClientConfig());
             }
             long start = System.currentTimeMillis();
             GenericQueryConfiguration configuration = this.logic.initialize(this.client, this.settings, this.calculatedAuths);
+            if (!isCurrentInitialization(generation)) {
+                // Close may have returned the installed client while initialize() was still acquiring planning resources.
+                // Reclaim those late resources without accepting another client or running setup after termination.
+                closeLogic();
+                return;
+            }
             this.lastPageNumber.set(0);
             this.logic.setupQuery(configuration);
             this.iter = this.logic.getTransformIterator(this.settings);
@@ -246,12 +258,15 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             this.getMetric().setSetupTime((System.currentTimeMillis() - start));
             this.getMetric().setLifecycle(QueryMetric.Lifecycle.INITIALIZED);
             testForUncaughtException(0);
+            // TODO: applyPrediction("Plan");
             synchronized (running) {
-                if (generation == resultsThreadGeneration.get()) {
+                if (generation == resultsThreadGeneration.get() && !canceled) {
                     resultsThreadStopped = false;
+                    return;
                 }
             }
-            // TODO: applyPrediction("Plan");
+            // setupQuery() and transformer creation can also finish after close has already cleaned up the logic.
+            closeLogic();
         } catch (Exception e) {
             log.error(e.getMessage(), e);
             if (this.logic instanceof BaseQueryLogic && this.logic.getCollectQueryMetrics() && null != this.getMetric()) {
@@ -276,10 +291,19 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
         }
     }
 
+    private boolean isCurrentInitialization(long generation) {
+        synchronized (running) {
+            return generation == resultsThreadGeneration.get() && !canceled;
+        }
+    }
+
     private long resetResultsThreadState() {
-        terminateResultsThread();
+        Future<Object> resultsFuture;
         long generation;
         synchronized (running) {
+            // Capture this reset's generation and clear state in the same transition that stops its old producer.
+            // Cancellation callbacks run later, so a concurrent close/cancel cannot become this reset's token.
+            resultsFuture = stopResultsThreadState();
             generation = resultsThreadGeneration.get();
             resultsThreadQueue.clear();
             hasNext.set(0);
@@ -301,6 +325,7 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                 settings.setUncaughtExceptionHandler(new QueryUncaughtExceptionHandler());
             }
         }
+        cancelResultsFuture(resultsFuture);
         synchronized (forcedReturn) {
             currentPageCount = 0;
             forcedReturn.set(false);
@@ -613,13 +638,23 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
     public void terminateResultsThread() {
         Future<Object> resultsFuture;
         synchronized (running) {
-            resultsThreadStopped = true;
-            resultsThreadGeneration.incrementAndGet();
-            running.set(false);
-            resultsFuture = future;
-            future = null;
-            running.notifyAll();
+            resultsFuture = stopResultsThreadState();
         }
+        cancelResultsFuture(resultsFuture);
+    }
+
+    // Caller holds running. Interrupting the Future and notifying result monitors happen after releasing that lock.
+    private Future<Object> stopResultsThreadState() {
+        resultsThreadStopped = true;
+        resultsThreadGeneration.incrementAndGet();
+        running.set(false);
+        Future<Object> resultsFuture = future;
+        future = null;
+        running.notifyAll();
+        return resultsFuture;
+    }
+
+    private void cancelResultsFuture(Future<Object> resultsFuture) {
         if (resultsFuture != null) {
             // Interrupt pending iterator work. The generation prevents late results from
             // this producer from entering a later execution of the query.
@@ -649,6 +684,16 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                 }
             }
         }
+    }
+
+    private boolean isWorkLimitReached() {
+        long maxWork = this.logic.getMaxWork();
+        if (maxWork >= 0 && (this.getMetric().getNextCount() + this.getMetric().getSeekCount()) >= maxWork) {
+            log.info("Query logic max work has been reached, aborting query.next call");
+            this.getMetric().setLifecycle(QueryMetric.Lifecycle.MAXWORK);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -731,14 +776,18 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                         this.getMetric().setLifecycle(QueryMetric.Lifecycle.MAXRESULTS);
                         break;
                     }
-                    if (this.logic.getMaxWork() >= 0 && (this.getMetric().getNextCount() + this.getMetric().getSeekCount()) >= this.logic.getMaxWork()) {
-                        log.info("Query logic max work has been reached, aborting query.next call");
-                        this.getMetric().setLifecycle(QueryMetric.Lifecycle.MAXWORK);
+                    if (isWorkLimitReached()) {
                         break;
                     }
                     // A complete page needs no further iterator work or executor capacity.
-                    if (asynchronous && !hasNext(pageStartTime)) {
-                        break;
+                    if (asynchronous) {
+                        if (!hasNext(pageStartTime)) {
+                            break;
+                        }
+                        // The producer may have exhausted maxWork while this request waited for its next row.
+                        if (isWorkLimitReached()) {
+                            break;
+                        }
                     }
                     if (log.isDebugEnabled()) {
                         log.debug("hasNext(" + pageStartTime + ") returned");
@@ -994,6 +1043,10 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             }
         }
 
+        closeLogic();
+    }
+
+    private void closeLogic() {
         if (logic != null) {
             try {
                 addNDC();
