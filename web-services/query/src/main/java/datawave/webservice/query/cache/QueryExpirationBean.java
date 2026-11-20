@@ -26,6 +26,7 @@ import datawave.microservice.querymetric.BaseQueryMetric;
 import datawave.microservice.querymetric.QueryMetric;
 import datawave.webservice.query.exception.DatawaveErrorCode;
 import datawave.webservice.query.exception.QueryException;
+import datawave.webservice.query.limit.QueryHeartbeat;
 import datawave.webservice.query.limit.QueryLimiter;
 import datawave.webservice.query.metric.QueryMetricsBean;
 import datawave.webservice.query.runner.RunningQuery;
@@ -114,6 +115,18 @@ public class QueryExpirationBean {
             // If we are shutting down this bean, or the query is considered idle for too long or its next call has been running for too long, time out the
             // query and remove it from the cache.
             if (clearAll || idleTooLong || nextTooLong) {
+                String queryId = settings.getId().toString();
+                QueryHeartbeat heartbeat = null;
+                if (query.getLogic().isQueryLimiterEnabled()) {
+                    try {
+                        heartbeat = queryLimiter.getQueryHeartbeat(queryId);
+                        if (queryCache.get(queryId) != query) {
+                            heartbeat = null;
+                        }
+                    } catch (Exception e) {
+                        log.error("Error capturing heartbeat before expiring " + queryId, e);
+                    }
+                }
                 if (settings.getUncaughtExceptionHandler() == null) {
                     settings.setUncaughtExceptionHandler(new QueryUncaughtExceptionHandler());
                 }
@@ -158,12 +171,10 @@ public class QueryExpirationBean {
                     log.error("Error returning connection to factory", e);
                 }
 
-                String queryId = settings.getId().toString();
-
                 // Stop counting the query towards query limits.
                 if (query.getLogic().isQueryLimiterEnabled()) {
                     try {
-                        queryLimiter.stopCountingQueryTowardsLimits(queryId);
+                        queryLimiter.stopCountingQueryTowardsLimits(queryId, heartbeat);
                     } catch (Exception e) {
                         log.error("Error stopping heartbeat and removing from cache: " + queryId, e);
                     }

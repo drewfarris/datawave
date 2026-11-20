@@ -80,12 +80,14 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
     private transient ClientLease initializationClientLease;
     private transient ClientLease lastAcceptedClientLease;
     private int pendingClientReturns;
+    private boolean initializationAttempted;
     // Administrative removal is terminal for this cached object, including the interval before cache eviction.
     private volatile boolean removalRequested;
 
     private static class ClientLease {
         private final AccumuloClient client;
         private boolean returnClaimed;
+        private boolean cleanupOnly;
 
         private ClientLease(AccumuloClient client) {
             this.client = client;
@@ -352,6 +354,71 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
         }
     }
 
+    /**
+     * Return a failed reset's loan while retaining its cleanup owner until the factory completes. A failure before setClient() owns a freshly borrowed loan,
+     * even when the previous initialization used the same physical client. Returns already claimed by close must not be repeated.
+     *
+     * @param factory
+     *            the client factory
+     * @param failedClient
+     *            the client borrowed by the failed reset
+     * @param initializationStarted
+     *            whether that reset invoked setClient()
+     * @throws Exception
+     *             if the factory fails to return the client
+     */
+    public void returnClientOnInitializationFailure(AccumuloConnectionFactory factory, AccumuloClient failedClient, boolean initializationStarted)
+                    throws Exception {
+        ClientLease returningLease;
+        synchronized (running) {
+            if (!initializationStarted || initializationClientLease == null) {
+                initializationClientLease = new ClientLease(failedClient);
+            }
+            returningLease = initializationClientLease;
+            if (returningLease.client != failedClient) {
+                returningLease = new ClientLease(failedClient);
+            }
+            if (returningLease.returnClaimed) {
+                return;
+            }
+            returningLease.returnClaimed = true;
+            if (clientLease == returningLease) {
+                client = null;
+                clientLease = null;
+            }
+            // Claim/detach and pending accounting are one transition: removal must not see an empty ownership gap.
+            pendingClientReturns++;
+        }
+        try {
+            factory.returnClient(failedClient);
+        } catch (Exception e) {
+            synchronized (running) {
+                returningLease.cleanupOnly = true;
+            }
+            recoverClientAfterFailedReturn(failedClient, returningLease);
+            throw e;
+        } finally {
+            synchronized (running) {
+                pendingClientReturns--;
+            }
+        }
+    }
+
+    private void recoverClientAfterFailedReturn(AccumuloClient returningClient, ClientLease returningLease) {
+        synchronized (running) {
+            // Producer termination does not transfer ownership, and an unsuccessful factory return did not release the loan.
+            if (returningLease != null) {
+                returningLease.returnClaimed = false;
+            }
+            // Rejected removal-time attempts cannot supersede the last accepted lease's cleanup.
+            if ((initializationClientLease == returningLease || (removalRequested && lastAcceptedClientLease == returningLease)) && client == null
+                            && clientLease == null) {
+                client = returningClient;
+                clientLease = returningLease;
+            }
+        }
+    }
+
     private boolean isCurrentInitialization(long generation) {
         synchronized (running) {
             return generation == resultsThreadGeneration.get() && !canceled && !removalRequested;
@@ -381,11 +448,12 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             // The replacement transformer starts with fresh work counters. Reset the live budget before next() can enforce maxWork.
             resetWorkMetrics(this.getMetric());
             resultsThreadMetric = new QueryMetric();
-            if (iter != null && settings.getUncaughtExceptionHandler() != null) {
+            if (initializationAttempted && settings.getUncaughtExceptionHandler() != null) {
                 // Renew the handler before initialization gives it to new scanner/planner threads.
-                // Threads retaining the previous handler cannot report failures into this execution.
+                // A failed first attempt may never create an iterator; its retained handler still belongs to that old attempt.
                 settings.setUncaughtExceptionHandler(new QueryUncaughtExceptionHandler());
             }
+            initializationAttempted = true;
         }
         cancelResultsFuture(resultsFuture);
         synchronized (forcedReturn) {
@@ -856,6 +924,9 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
         try {
             addNDC();
             synchronized (running) {
+                if (clientLease != null && clientLease.cleanupOnly) {
+                    throw new QueryException(DatawaveErrorCode.QUERY_TIMEOUT_OR_SERVER_ERROR, "A failed client return is awaiting cleanup");
+                }
                 pageInProgress = true;
                 running.notifyAll();
             }
@@ -1191,19 +1262,7 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             }
             closeLogic();
         } catch (Exception e) {
-            synchronized (running) {
-                // A failed return did not transfer this lease. Its initializer may still need to claim it after cancellation or another attempt.
-                if (closingLease != null) {
-                    closingLease.returnClaimed = false;
-                }
-                // Producer termination does not replace client ownership. Only the same initialization can recover its installed client.
-                // Rejected removal-time attempts own unused loans but cannot supersede the last accepted lease's cleanup.
-                if ((initializationClientLease == closingLease || (removalRequested && lastAcceptedClientLease == closingLease)) && client == null
-                                && clientLease == null) {
-                    client = closingClient;
-                    clientLease = closingLease;
-                }
-            }
+            recoverClientAfterFailedReturn(closingClient, closingLease);
             throw e;
         } finally {
             if (closingClient != null) {

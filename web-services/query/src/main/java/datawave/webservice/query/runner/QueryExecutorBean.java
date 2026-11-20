@@ -151,6 +151,7 @@ import datawave.webservice.query.exception.PreConditionFailedQueryException;
 import datawave.webservice.query.exception.QueryException;
 import datawave.webservice.query.exception.UnauthorizedQueryException;
 import datawave.webservice.query.factory.Persister;
+import datawave.webservice.query.limit.QueryHeartbeat;
 import datawave.webservice.query.limit.QueryLimiter;
 import datawave.webservice.query.limit.QueryLimiterResponse;
 import datawave.webservice.query.metric.QueryMetricsBean;
@@ -1291,6 +1292,7 @@ public class QueryExecutorBean implements QueryExecutor {
 
         AccumuloClient client = null;
         RunningQuery query = null;
+        QueryHeartbeat resetHeartbeat = null;
         boolean resetStarted = false;
         boolean initializationStarted = false;
         boolean locked = false;
@@ -1373,6 +1375,9 @@ public class QueryExecutorBean implements QueryExecutor {
             // Consider this query to be active when determining query limits.
             query.checkForRemoval();
             markQueryAsActive(query.getLogic(), id, settings.getUserDN(), settings.getSystemFrom(), settings.getQueryLogicName());
+            if (query.getLogic().isQueryLimiterEnabled()) {
+                resetHeartbeat = queryLimiter.getQueryHeartbeat(id);
+            }
 
             initializationStarted = true;
             query.setClient(client);
@@ -1392,11 +1397,7 @@ public class QueryExecutorBean implements QueryExecutor {
             log.error("Exception caught on resetting query", e);
             try {
                 if (null != client) {
-                    // Before setClient, the lease belongs to this caller. Afterward, close may already have returned that initialization's lease.
-                    AccumuloClient failedClient = initializationStarted ? query.releaseClientOnInitializationFailure(client) : client;
-                    if (failedClient != null) {
-                        connectionFactory.returnClient(failedClient);
-                    }
+                    query.returnClientOnInitializationFailure(connectionFactory, client, initializationStarted);
                 }
             } catch (Exception e2) {
                 log.error("Error returning connection on failed reset", e2);
@@ -1412,6 +1413,10 @@ public class QueryExecutorBean implements QueryExecutor {
             throw new DatawaveWebApplicationException(qe, response, statusCode);
         } finally {
             if (query != null && query.isMarkedForRemoval()) {
+                if (resetHeartbeat != null) {
+                    // Close may have captured the prior heartbeat before this reset enrolled another execution on the same object.
+                    markQueryAsInactive(query.getLogic(), id, resetHeartbeat);
+                }
                 // A concurrent API close may have left a return owned by this reset. Retry its retained loan before evicting the cleanup owner.
                 if (query.getClient() != null) {
                     try {
@@ -2489,6 +2494,18 @@ public class QueryExecutorBean implements QueryExecutor {
 
         log.debug("Closing " + queryId);
 
+        QueryHeartbeat heartbeat = null;
+        if (query.getLogic().isQueryLimiterEnabled()) {
+            try {
+                heartbeat = queryLimiter.getQueryHeartbeat(queryId);
+                // A stale lookup may already refer to an evicted object. Check after taking the heartbeat snapshot, before beginning delayed cleanup.
+                if (queryCache.get(queryId) != query) {
+                    heartbeat = null;
+                }
+            } catch (Exception e) {
+                log.error("Error capturing heartbeat before closing " + queryId, e);
+            }
+        }
         query.markForRemoval();
         try {
             query.closeConnection(connectionFactory);
@@ -2496,7 +2513,7 @@ public class QueryExecutorBean implements QueryExecutor {
             log.error("Failed to close connection for " + queryId, e);
         }
 
-        markQueryAsInactive(query.getLogic(), queryId);
+        markQueryAsInactive(query.getLogic(), queryId, heartbeat);
 
         removeAfterClientCleanup(query);
 
@@ -4082,6 +4099,16 @@ public class QueryExecutorBean implements QueryExecutor {
                 queryLimiter.stopCountingQueryTowardsLimits(queryId);
             } catch (Exception e) {
                 log.error("Error occurred when marking query " + queryId + " as inactive");
+            }
+        }
+    }
+
+    private void markQueryAsInactive(QueryLogic logic, String queryId, QueryHeartbeat heartbeat) {
+        if (logic.isQueryLimiterEnabled()) {
+            try {
+                queryLimiter.stopCountingQueryTowardsLimits(queryId, heartbeat);
+            } catch (Exception e) {
+                log.error("Error occurred when marking query " + queryId + " as inactive", e);
             }
         }
     }

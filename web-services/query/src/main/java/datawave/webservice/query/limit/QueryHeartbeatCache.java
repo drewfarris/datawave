@@ -153,6 +153,23 @@ public class QueryHeartbeatCache {
     }
 
     /**
+     * Stop the captured execution's heartbeat without removing a replacement stored under the same query ID. Use instance identity: the cleanup belongs to this
+     * heartbeat, not to another heartbeat with equivalent values.
+     *
+     * @param queryId
+     *            the query ID
+     * @param heartbeat
+     *            the heartbeat captured before cleanup, or null if that execution had none
+     */
+    public void stopAndRemoveHeartbeat(String queryId, QueryHeartbeat heartbeat) {
+        if (heartbeat != null) {
+            cache.asMap().computeIfPresent(queryId, (id, current) -> current == heartbeat ? null : current);
+            // The older heartbeat's nodes still need cleanup even if its cache entry has already been replaced.
+            stopHeartbeat(heartbeat);
+        }
+    }
+
+    /**
      * Attempt to stop the given heartbeat via {@link QueryHeartbeat#stopWithoutNotifyingListener()}.
      *
      * @param heartbeat

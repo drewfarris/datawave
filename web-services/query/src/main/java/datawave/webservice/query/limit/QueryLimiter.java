@@ -240,6 +240,29 @@ public class QueryLimiter {
     }
 
     /**
+     * Capture the heartbeat counted for the current execution before beginning delayed cleanup.
+     *
+     * @param queryId
+     *            the query ID
+     * @return its current heartbeat, or null if none is counted
+     */
+    public QueryHeartbeat getQueryHeartbeat(String queryId) {
+        return heartbeatCache.get(queryId);
+    }
+
+    /**
+     * Stop only the captured execution's heartbeat; a newer heartbeat for the same query ID remains counted.
+     *
+     * @param queryId
+     *            the query ID
+     * @param heartbeat
+     *            the heartbeat captured before cleanup, or null if that execution had none
+     */
+    public void stopCountingQueryTowardsLimits(String queryId, QueryHeartbeat heartbeat) {
+        heartbeatCache.stopAndRemoveHeartbeat(queryId, heartbeat);
+    }
+
+    /**
      * Return the {@link ActiveQueryTracker} instance, initializing it if needed.
      *
      * @return the active query tracker
