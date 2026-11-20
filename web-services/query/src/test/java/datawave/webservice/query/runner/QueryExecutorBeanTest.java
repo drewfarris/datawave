@@ -1,9 +1,12 @@
 package datawave.webservice.query.runner;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -146,6 +149,7 @@ import datawave.webservice.query.logic.QueryLogicFactoryImpl;
 import datawave.webservice.query.metric.QueryMetricsBean;
 import datawave.webservice.query.result.event.ResponseObjectFactory;
 import datawave.webservice.query.util.MapUtils;
+import datawave.webservice.query.util.QueryUncaughtExceptionHandler;
 import datawave.webservice.result.DefaultEventQueryResponse;
 import datawave.webservice.result.EventQueryResponseBase;
 import datawave.webservice.result.GenericResponse;
@@ -1039,6 +1043,382 @@ public class QueryExecutorBeanTest {
                 assertEquals(1, pool.getNumActive());
                 expirationBean.removeIdleOrExpired();
                 assertNull(cache.get(id));
+                assertEquals(0, pool.getNumActive());
+            } finally {
+                returnTrackedClients(pool, client);
+            }
+        }
+    }
+
+    /**
+     * Failed initialization detaches its client before reset calls the factory directly. Unlike close's return, that return was not counted as pending, so
+     * administrative close evicted the cleanup owner while the pool still tracked its loan. If the return then failed, reset only logged it and leaked the
+     * client. Hold that cleanup return across the real administrative API; keep its owner cached until success or retry has released the loan.
+     *
+     * @param beforeInitialization
+     *            fail in accounting before setClient(), rather than inside initialize()
+     * @param failReturn
+     *            fail the first cleanup return before the real pool releases its loan; success controls pending-return retention alone
+     */
+    @ParameterizedTest
+    @CsvSource({"false, false", "false, true", "true, false", "true, true"})
+    @Timeout(15)
+    @SuppressWarnings("unchecked")
+    public void testRemovalRetainsFailedInitializationReturn(boolean beforeInitialization, boolean failReturn) throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            QueryImpl settings = createNewQuery();
+            settings.setOwner("owner");
+            QueryLogic<Object> logic = mock(QueryLogic.class);
+            RunningQuery query = queryForReset(null, settings, logic);
+            configureResetOwner(factory);
+            String id = settings.getId().toString();
+            cache.put(id, query);
+            if (beforeInitialization) {
+                when(logic.isQueryLimiterEnabled()).thenReturn(true);
+                when(queryLimiter.checkForLimits(any(), any(), any())).thenReturn(QueryLimiterResponse.hasNotMetLimit());
+                doThrow(new IOException("Accounting failed before initialization")).when(queryLimiter).countQueryTowardsLimits(any(), any(), any(), any());
+            } else {
+                when(logic.initialize(any(), any(), any())).thenThrow(new IOException("Initialization failed"));
+            }
+            CountDownLatch returning = new CountDownLatch(1);
+            CountDownLatch releaseReturn = new CountDownLatch(1);
+            AtomicBoolean firstReturn = new AtomicBoolean(true);
+            doAnswer(invocation -> {
+                if (firstReturn.compareAndSet(true, false)) {
+                    returning.countDown();
+                    assertTrue(Uninterruptibles.awaitUninterruptibly(releaseReturn, 5, TimeUnit.SECONDS), "Cleanup return was not released");
+                    if (failReturn) {
+                        throw new IOException("Cleanup return failed before releasing its loan");
+                    }
+                }
+                return invocation.callRealMethod();
+            }).when(factory).returnClient(client);
+            ExecutorService requests = Executors.newSingleThreadExecutor();
+            try {
+                Future<?> reset = requests.submit(() -> bean.reset(id));
+                assertTrue(returning.await(2, TimeUnit.SECONDS), "Reset did not reach its failure-cleanup return");
+                bean.adminClose(id);
+                // Capture the cache state before releasing the return; eventual success must not hide eviction of the pending owner.
+                boolean retainedWhileReturning = cache.get(id) == query;
+                releaseReturn.countDown();
+                ExecutionException failure = assertThrows(ExecutionException.class, () -> reset.get(2, TimeUnit.SECONDS));
+                assertInstanceOf(DatawaveWebApplicationException.class, failure.getCause());
+                assertTrue(retainedWhileReturning, "Removal evicted a query whose initializer cleanup still owned a pending loan");
+                assertEquals(0, pool.getNumActive(), "Removal/reset failure cleanup orphaned the loan");
+                assertFalse(pool.connectorCameFromHere(client));
+                assertNull(query.getClient());
+                assertNull(cache.get(id));
+            } finally {
+                releaseReturn.countDown();
+                requests.shutdownNow();
+                assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+                returnTrackedClients(pool, client);
+            }
+        }
+    }
+
+    /**
+     * A failed cleanup return can occur without administrative removal. Keep that loan attached and cached so a later close can retry it. The accounting case
+     * first uses and returns the identical physical client in an earlier execution: an unused reborrow is a new loan, even when its old initialization record
+     * says the old loan was already returned. That retained client is for cleanup only; next must not reuse the previous execution's closed iterator.
+     *
+     * @param beforeInitialization
+     *            whether accounting fails before initialization accepts the reborrowed client
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @SuppressWarnings("unchecked")
+    public void testFailedInitializationReturnRemainsAvailableForRetry(boolean beforeInitialization) throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            QueryImpl settings = createNewQuery();
+            settings.setOwner("owner");
+            QueryLogic<Object> logic = mock(QueryLogic.class);
+            RunningQuery query = queryForReset(pool.borrowObject(new HashMap<>()), settings, logic);
+            query.closeConnection(factory);
+            configureResetOwner(factory);
+            String id = settings.getId().toString();
+            cache.put(id, query);
+            if (beforeInitialization) {
+                when(logic.isQueryLimiterEnabled()).thenReturn(true);
+                when(queryLimiter.checkForLimits(any(), any(), any())).thenReturn(QueryLimiterResponse.hasNotMetLimit());
+                doThrow(new IOException("Accounting rejected a freshly reborrowed client")).when(queryLimiter).countQueryTowardsLimits(any(), any(), any(),
+                                any());
+            } else {
+                when(logic.initialize(any(), any(), any())).thenThrow(new IOException("Replacement initialization failed"));
+            }
+            AtomicBoolean firstReturn = new AtomicBoolean(true);
+            doAnswer(invocation -> {
+                if (firstReturn.compareAndSet(true, false)) {
+                    throw new IOException("Failed initializer's return failed");
+                }
+                return invocation.callRealMethod();
+            }).when(factory).returnClient(client);
+            try {
+                assertThrows(DatawaveWebApplicationException.class, () -> bean.reset(id));
+                assertSame(query, cache.get(id));
+                assertSame(client, query.getClient(), "The failed cleanup return lost its retryable owner");
+                assertEquals(1, pool.getNumActive());
+                assertTrue(pool.connectorCameFromHere(client));
+                assertThrows(QueryException.class, query::next, "A retained cleanup loan must not serve the old iterator");
+                bean.adminClose(id);
+                assertEquals(0, pool.getNumActive());
+                assertFalse(pool.connectorCameFromHere(client));
+                assertNull(query.getClient());
+                assertNull(cache.get(id));
+            } finally {
+                returnTrackedClients(pool, client);
+            }
+        }
+    }
+
+    /**
+     * A delayed closer removed limiter state by query ID even after instance-aware eviction protected a replacement RunningQuery. Use only real API calls to
+     * replace the old object: a second administrative close evicts it, then reset loads a separate persisted definition, borrows the same pooled client, and
+     * counts a new heartbeat. The older administrative/expiration cleanup must leave both that cached loan and its heartbeat intact.
+     *
+     * The earlier gate also covers a stale query lookup: the old object has been retrieved, but its cleanup has not yet captured accounting state. Checking
+     * only a heartbeat snapshot without checking the cached instance could capture and stop the newer heartbeat at this boundary.
+     *
+     * @param expiration
+     *            use scheduled expiration rather than administrative close for the older cleanup
+     * @param beforeCleanup
+     *            pause the older query's settings lookup before cleanup, rather than after its real connection cleanup
+     */
+    @ParameterizedTest
+    @CsvSource({"false, false", "false, true", "true, false", "true, true"})
+    @Timeout(15)
+    @SuppressWarnings("unchecked")
+    public void testDelayedRemovalPreservesReplacementHeartbeat(boolean expiration, boolean beforeCleanup) throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            DatawaveUser user = new DatawaveUser(SubjectIssuerDNPair.of(settings.getUserDN(), "CN=issuer"), UserType.USER, Arrays.asList("PRIVATE", "PUBLIC"),
+                            null, null, 0L);
+            DatawavePrincipal principal = new DatawavePrincipal(Collections.singletonList(user));
+            settings.setOwner(principal.getShortName());
+            when(ctx.getCallerPrincipal()).thenReturn(principal);
+            String id = settings.getId().toString();
+            QueryLogic<Object> oldLogic = mock(QueryLogic.class);
+            when(oldLogic.isQueryLimiterEnabled()).thenReturn(true);
+            RunningQuery oldQuery = spy(queryForReset(pool.borrowObject(new HashMap<>()), settings, oldLogic));
+            cache.put(id, oldQuery);
+            // Persistence returns a separate definition, without the old runtime handler that expiration records a timeout into.
+            QueryImpl persisted = createNewQuery();
+            persisted.setId(settings.getId());
+            persisted.setOwner(principal.getShortName());
+            QueryLogic<Object> replacementLogic = mock(QueryLogic.class);
+            queryForReset(null, persisted, replacementLogic);
+            when(replacementLogic.isQueryLimiterEnabled()).thenReturn(true);
+            when(replacementLogic.getConnectionPriority()).thenReturn(AccumuloConnectionFactory.Priority.NORMAL);
+            when(persister.findById(id)).thenReturn(Collections.singletonList(persisted));
+            doReturn(replacementLogic).when(queryLogicFactory).getQueryLogic(persisted.getQueryLogicName(), principal);
+            QueryHeartbeatCache heartbeats = new QueryHeartbeatCache();
+            QueryHeartbeat originalHeartbeat = new QueryHeartbeat(id, Collections.emptyList());
+            heartbeats.put(originalHeartbeat);
+            QueryLimiter limiter = spy(new QueryLimiter());
+            limiter.setHeartbeatCache(heartbeats);
+            doReturn(QueryLimiterResponse.hasNotMetLimit()).when(limiter).checkForLimits(any(), any(), any());
+            // Exercise real cache cleanup without contacting Zookeeper for node creation.
+            doAnswer(invocation -> {
+                heartbeats.put(new QueryHeartbeat(id, Collections.emptyList()));
+                return null;
+            }).when(limiter).countQueryTowardsLimits(any(), any(), any(), any());
+            ReflectionTestUtils.setField(bean, "queryLimiter", limiter);
+            QueryExpirationProperties config = new QueryExpirationProperties();
+            config.setIdleTimeout(1);
+            ReflectionTestUtils.setField(oldQuery, "lastUsed", System.currentTimeMillis() - config.getIdleTimeoutMillis() - 1);
+            QueryExpirationBean expirationBean = new QueryExpirationBean();
+            ReflectionTestUtils.setField(expirationBean, "queryCache", cache);
+            ReflectionTestUtils.setField(expirationBean, "config", config);
+            ReflectionTestUtils.setField(expirationBean, "connectionFactory", factory);
+            ReflectionTestUtils.setField(expirationBean, "queryLogicCacheBean", qlCache);
+            ReflectionTestUtils.setField(expirationBean, "metricsBean", metrics);
+            ReflectionTestUtils.setField(expirationBean, "queryLimiter", limiter);
+            CountDownLatch olderPaused = new CountDownLatch(1);
+            CountDownLatch releaseOlder = new CountDownLatch(1);
+            AtomicBoolean firstCall = new AtomicBoolean(true);
+            Answer<Object> pause = invocation -> {
+                Object result = invocation.callRealMethod();
+                if (firstCall.compareAndSet(true, false)) {
+                    olderPaused.countDown();
+                    assertTrue(Uninterruptibles.awaitUninterruptibly(releaseOlder, 5, TimeUnit.SECONDS), "Older cleanup was not released");
+                }
+                return result;
+            };
+            if (beforeCleanup) {
+                doAnswer(pause).when(oldQuery).getSettings();
+            } else {
+                doAnswer(pause).when(oldQuery).closeConnection(factory);
+            }
+            ExecutorService requests = Executors.newSingleThreadExecutor();
+            try {
+                Future<?> removal = requests.submit(() -> {
+                    if (expiration) {
+                        expirationBean.removeIdleOrExpired();
+                    } else {
+                        bean.adminClose(id);
+                    }
+                });
+                assertTrue(olderPaused.await(2, TimeUnit.SECONDS), "Older cleanup did not pause");
+                bean.adminClose(id);
+                assertNull(cache.get(id), "Second close did not evict the old object");
+                bean.reset(id);
+                RunningQuery replacement = cache.get(id);
+                assertNotSame(oldQuery, replacement);
+                assertSame(client, replacement.getClient());
+                QueryHeartbeat replacementHeartbeat = heartbeats.get(id);
+                assertNotNull(replacementHeartbeat, "Reset did not count its new execution");
+                assertNotSame(originalHeartbeat, replacementHeartbeat);
+                releaseOlder.countDown();
+                removal.get(2, TimeUnit.SECONDS);
+                assertSame(replacement, cache.get(id));
+                assertEquals(1, pool.getNumActive());
+                assertTrue(pool.connectorCameFromHere(client));
+                assertSame(replacementHeartbeat, heartbeats.get(id), "Old cleanup stopped the replacement's heartbeat");
+                bean.adminClose(id);
+                assertNull(cache.get(id));
+                assertNull(heartbeats.get(id));
+                assertEquals(0, pool.getNumActive());
+            } finally {
+                releaseOlder.countDown();
+                requests.shutdownNow();
+                assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+                returnTrackedClients(pool, client);
+            }
+        }
+    }
+
+    /**
+     * Capturing the older heartbeat for close must still allow cleanup of a reset that starts counting a new execution on the same RunningQuery. Pause close
+     * just before it marks removal, let reset borrow/count/install and block in initialize(), then complete close before initialization returns successfully.
+     * That initializer cannot reopen the removed query; reset's final cleanup must stop the heartbeat it enrolled, even though no exception reaches reset.
+     *
+     * This controls the former ID-based cleanup behavior while the replacement-instance tests require identity-aware cleanup.
+     */
+    @Test
+    @Timeout(15)
+    @SuppressWarnings("unchecked")
+    public void testResetOvertakenByRemovalReleasesItsOwnHeartbeat() throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            settings.setOwner("owner");
+            String id = settings.getId().toString();
+            QueryLogic<Object> logic = mock(QueryLogic.class);
+            when(logic.isQueryLimiterEnabled()).thenReturn(true);
+            RunningQuery query = spy(queryForReset(pool.borrowObject(new HashMap<>()), settings, logic));
+            cache.put(id, query);
+            QueryHeartbeatCache heartbeats = new QueryHeartbeatCache();
+            heartbeats.put(new QueryHeartbeat(id, Collections.emptyList()));
+            QueryLimiter limiter = spy(new QueryLimiter());
+            limiter.setHeartbeatCache(heartbeats);
+            doReturn(QueryLimiterResponse.hasNotMetLimit()).when(limiter).checkForLimits(any(), any(), any());
+            doAnswer(invocation -> {
+                heartbeats.put(new QueryHeartbeat(id, Collections.emptyList()));
+                return null;
+            }).when(limiter).countQueryTowardsLimits(any(), any(), any(), any());
+            ReflectionTestUtils.setField(bean, "queryLimiter", limiter);
+            CountDownLatch beforeRemoval = new CountDownLatch(1);
+            CountDownLatch releaseRemoval = new CountDownLatch(1);
+            CountDownLatch initializing = new CountDownLatch(1);
+            CountDownLatch releaseInitialization = new CountDownLatch(1);
+            doAnswer(invocation -> {
+                beforeRemoval.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releaseRemoval, 5, TimeUnit.SECONDS), "Administrative removal was not released");
+                return invocation.callRealMethod();
+            }).when(query).markForRemoval();
+            when(logic.initialize(any(), any(), any())).thenAnswer(invocation -> {
+                initializing.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releaseInitialization, 5, TimeUnit.SECONDS), "Reset initialization was not released");
+                return mock(GenericQueryConfiguration.class);
+            });
+            ExecutorService requests = Executors.newFixedThreadPool(2);
+            try {
+                Future<?> close = requests.submit(() -> bean.adminClose(id));
+                assertTrue(beforeRemoval.await(2, TimeUnit.SECONDS), "Close did not pause before marking removal");
+                Future<?> reset = requests.submit(() -> bean.reset(id));
+                assertTrue(initializing.await(2, TimeUnit.SECONDS), "Reset did not count and install its new execution");
+                assertNotNull(heartbeats.get(id), "Reset did not enroll its heartbeat");
+                releaseRemoval.countDown();
+                close.get(2, TimeUnit.SECONDS);
+                assertNull(cache.get(id));
+                assertEquals(0, pool.getNumActive());
+                releaseInitialization.countDown();
+                reset.get(2, TimeUnit.SECONDS);
+                assertNull(heartbeats.get(id), "Terminated reset left its own heartbeat counted");
+                assertNull(query.getClient());
+                assertNull(cache.get(id));
+                assertEquals(0, pool.getNumActive());
+            } finally {
+                releaseRemoval.countDown();
+                releaseInitialization.countDown();
+                requests.shutdownNow();
+                assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+                returnTrackedClients(pool, client);
+            }
+        }
+    }
+
+    /**
+     * Handler renewal depended on an existing iterator. A defined query's first failed planning attempt had no iterator, so its retry reused the failed handler
+     * and rejected healthy initialization. Even if the old report arrived only after retry succeeded, that shared handler poisoned the new execution. Preserve
+     * the legitimate first-attempt handler, then isolate the retry from both already-recorded and late reports by the failed attempt.
+     *
+     * @param reportBeforeRetry
+     *            record the old planning failure immediately, rather than reporting it after the healthy retry has initialized
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @SuppressWarnings("unchecked")
+    public void testResetAfterFirstPlanningFailureRenewsHandler(boolean reportBeforeRetry) throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            settings.setOwner("owner");
+            QueryUncaughtExceptionHandler originalHandler = new QueryUncaughtExceptionHandler();
+            settings.setUncaughtExceptionHandler(originalHandler);
+            QueryLogic<Object> logic = mock(QueryLogic.class);
+            queryForReset(null, settings, logic);
+            when(logic.getMaxWork()).thenReturn(-1L);
+            when(logic.getMaxPageSize()).thenReturn(100);
+            when(logic.getMaxResults()).thenReturn(100L);
+            when(logic.getResultLimit(settings)).thenReturn(100L);
+            RunningQuery query = new RunningQuery(null, AccumuloConnectionFactory.Priority.NORMAL, logic, settings, null, null, new QueryMetricFactoryImpl());
+            String id = settings.getId().toString();
+            cache.put(id, query);
+            IOException planningFailure = new IOException("First planning attempt failed before creating an iterator");
+            AtomicBoolean firstAttempt = new AtomicBoolean(true);
+            when(logic.initialize(any(), any(), any())).thenAnswer(invocation -> {
+                if (firstAttempt.compareAndSet(true, false)) {
+                    assertSame(originalHandler, settings.getUncaughtExceptionHandler(), "The first attempt lost its legitimate handler");
+                    if (reportBeforeRetry) {
+                        originalHandler.uncaughtException(Thread.currentThread(), planningFailure);
+                    }
+                    throw planningFailure;
+                }
+                return mock(GenericQueryConfiguration.class);
+            });
+            try {
+                assertThrows(DatawaveWebApplicationException.class, () -> bean.reset(id));
+                assertNull(query.getTransformIterator(), "The failure must precede iterator installation");
+                assertNull(query.getClient());
+                assertEquals(0, pool.getNumActive());
+                assertDoesNotThrow(() -> bean.reset(id), "Healthy retry rethrew the earlier planning failure");
+                assertNotSame(originalHandler, settings.getUncaughtExceptionHandler(), "Retry still shares the failed attempt's handler");
+                originalHandler.uncaughtException(Thread.currentThread(), planningFailure);
+                assertNull(settings.getUncaughtExceptionHandler().getUncaughtException(), "Late old report poisoned the retry");
+                assertEquals(Collections.singletonList("row"), query.next().getResults());
+                bean.adminClose(id);
                 assertEquals(0, pool.getNumActive());
             } finally {
                 returnTrackedClients(pool, client);

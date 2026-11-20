@@ -349,7 +349,9 @@ public class QueryExpirationBeanTest {
         verify(query).closeConnection(connectionFactory);
 
         // Verify that we stopped counting the query towards query limits.
-        verify(queryLimiter).stopCountingQueryTowardsLimits(queryId);
+        assertThat(Mockito.mockingDetails(queryLimiter).getInvocations().stream().filter(
+                        invocation -> invocation.getMethod().getName().equals("stopCountingQueryTowardsLimits") && queryId.equals(invocation.getArguments()[0]))
+                        .count()).isEqualTo(1L);
 
         // Verify the query is no longer in the query cache.
         assertThat(queryCache.get(queryId)).isNull();
