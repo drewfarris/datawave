@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -28,6 +29,12 @@ import com.google.common.collect.Maps;
 
 import datawave.core.common.connection.AccumuloConnectionFactory;
 import datawave.core.query.logic.QueryLogic;
+import datawave.microservice.querymetric.BaseQueryMetric;
+import datawave.webservice.query.exception.DatawaveErrorCode;
+import datawave.webservice.query.exception.QueryException;
+import datawave.webservice.query.limit.QueryHeartbeat;
+import datawave.webservice.query.limit.QueryLimiter;
+import datawave.webservice.query.runner.RunningQuery;
 
 @Startup
 @Singleton
@@ -42,12 +49,17 @@ public class CreatedQueryLogicCacheBean {
         final String userID;
         final QueryLogic<?> logic;
         final AccumuloClient client;
+        final Creation creation;
 
         public Triple(String userID, QueryLogic<?> logic, AccumuloClient client) {
-            super();
+            this(userID, logic, client, null);
+        }
+
+        private Triple(String userID, QueryLogic<?> logic, AccumuloClient client, Creation creation) {
             this.userID = userID;
             this.logic = logic;
             this.client = client;
+            this.creation = creation;
         }
 
         @Override
@@ -59,7 +71,8 @@ public class CreatedQueryLogicCacheBean {
         public boolean equals(Object o) {
             if (o instanceof Triple) {
                 Triple other = (Triple) o;
-                return other.userID.equals(this.userID) && other.logic.equals(this.logic) && other.client.equals(this.client);
+                return Objects.equals(other.userID, userID) && Objects.equals(other.logic, logic) && Objects.equals(other.client, client)
+                                && other.creation == creation;
             }
 
             return false;
@@ -70,7 +83,7 @@ public class CreatedQueryLogicCacheBean {
         if (null == from) {
             return null;
         }
-        return Pair.of(from.logic, from.client);
+        return from.creation != null ? from.creation : Pair.of(from.logic, from.client);
     };
 
     // returns the logic and connection fields in a triple as a pair
@@ -88,6 +101,203 @@ public class CreatedQueryLogicCacheBean {
     private AccumuloConnectionFactory connectionFactory;
     private final ConcurrentHashMap<Pair<String,Long>,Triple> cache = new ConcurrentHashMap<>();
     private Clock clock = Clock.systemUTC();
+
+    /**
+     * One creation owns its loan until publication transfers ownership to RunningQuery. Temporary-cache cleanup and the creating caller share this return
+     * claim, even before construction completes. Keep failed and pending returns reachable until cleanup succeeds.
+     */
+    public static class Creation extends Pair<QueryLogic<?>,AccumuloClient> {
+        private static final long serialVersionUID = 1L;
+        private final CreatedQueryLogicCacheBean owner;
+        private final String queryId;
+        private final QueryLogic<?> logic;
+        // Guarded by this; factory and logic callbacks run outside this monitor.
+        private AccumuloClient client;
+        private RunningQuery query;
+        private QueryCache runningCache;
+        private QueryLimiter limiter;
+        private QueryHeartbeat heartbeat;
+        private boolean closed;
+        private boolean returnClaimed;
+        private boolean returned;
+        private boolean published;
+        private boolean creatorFinished;
+
+        private Creation(CreatedQueryLogicCacheBean owner, String queryId, QueryLogic<?> logic) {
+            this.owner = owner;
+            this.queryId = queryId;
+            this.logic = logic;
+        }
+
+        @Override
+        public QueryLogic<?> getLeft() {
+            return logic;
+        }
+
+        @Override
+        public synchronized AccumuloClient getRight() {
+            return client;
+        }
+
+        @Override
+        public AccumuloClient setValue(AccumuloClient value) {
+            throw new UnsupportedOperationException("Creation owns its client");
+        }
+
+        public synchronized void acquiredClient(AccumuloClient client) {
+            this.client = client;
+        }
+
+        public synchronized void setHeartbeat(QueryLimiter limiter, QueryHeartbeat heartbeat) {
+            this.limiter = limiter;
+            this.heartbeat = heartbeat;
+        }
+
+        public synchronized void attach(RunningQuery query) throws QueryException {
+            this.query = query;
+            if (closed) {
+                query.markForRemoval();
+            }
+            checkForCancellation();
+        }
+
+        public synchronized void checkForCancellation() throws QueryException {
+            if (closed) {
+                throw new QueryException(DatawaveErrorCode.QUERY_CANCELED, "Creation was closed before initialization completed");
+            }
+        }
+
+        public synchronized void publish(QueryCache cache) throws QueryException {
+            checkForCancellation();
+            query.checkForRemoval();
+            cache.put(queryId, query);
+            runningCache = cache;
+            published = true;
+        }
+
+        public synchronized boolean isInitializing() {
+            return !closed && !published && !creatorFinished;
+        }
+
+        public void close(AccumuloConnectionFactory factory) throws Exception {
+            RunningQuery closingQuery;
+            QueryCache cache;
+            QueryLimiter closingLimiter;
+            QueryHeartbeat closingHeartbeat;
+            AccumuloClient returningClient = null;
+            boolean transferred;
+            synchronized (this) {
+                closed = true;
+                closingQuery = query;
+                cache = runningCache;
+                closingLimiter = limiter;
+                closingHeartbeat = heartbeat;
+                transferred = published;
+                if (!transferred && client != null && !returnClaimed && !returned) {
+                    returnClaimed = true;
+                    returningClient = client;
+                }
+            }
+            try {
+                if (closingQuery != null) {
+                    closingQuery.markForRemoval();
+                    if (!transferred) {
+                        closingQuery.getMetric().setLifecycle(BaseQueryMetric.Lifecycle.CLOSED);
+                        closingQuery.terminateResultsThread();
+                        closingQuery.setClient(null);
+                    }
+                }
+                if (transferred) {
+                    closingQuery.closeConnection(factory);
+                } else if (returningClient != null) {
+                    factory.returnClient(returningClient);
+                    synchronized (this) {
+                        returned = true;
+                    }
+                }
+            } catch (Exception e) {
+                if (returningClient != null) {
+                    synchronized (this) {
+                        returnClaimed = false;
+                    }
+                }
+                throw e;
+            } finally {
+                if (!transferred) {
+                    try {
+                        logic.close();
+                    } catch (Exception e) {
+                        log.error("Error closing creation logic for " + queryId, e);
+                    }
+                }
+                if (closingLimiter != null && closingHeartbeat != null) {
+                    try {
+                        closingLimiter.stopCountingQueryTowardsLimits(queryId, closingHeartbeat);
+                    } catch (Exception e) {
+                        log.error("Error stopping creation accounting for " + queryId, e);
+                    }
+                }
+                if (transferred && !closingQuery.hasOutstandingClientLease()) {
+                    cache.remove(queryId, closingQuery);
+                }
+                retireIfDone();
+            }
+        }
+
+        public void finish() {
+            synchronized (this) {
+                creatorFinished = true;
+            }
+            retireIfDone();
+        }
+
+        private void retireIfDone() {
+            synchronized (this) {
+                if (creatorFinished && (published || returned || client == null)) {
+                    owner.removeCreation(this);
+                }
+            }
+        }
+    }
+
+    /**
+     * Register ownership before borrowing or construction, so any cleanup path can terminate the same creation.
+     *
+     * @param queryId
+     *            the query identifier
+     * @param userId
+     *            the creating user
+     * @param logic
+     *            the creation's logic
+     * @return its shared initialization and cleanup owner
+     */
+    public Creation addForCreation(String queryId, String userId, QueryLogic<?> logic) {
+        Creation creation = new Creation(this, queryId, logic);
+        if (cache.putIfAbsent(Pair.of(queryId, clock.millis()), new Triple(userId, logic, null, creation)) != null) {
+            throw new IllegalStateException("Creation already registered for " + queryId);
+        }
+        return creation;
+    }
+
+    public boolean isInitializing(String queryId) {
+        for (Entry<Pair<String,Long>,Triple> entry : cache.entrySet()) {
+            if (entry.getKey().getLeft().equals(queryId)) {
+                Creation creation = entry.getValue().creation;
+                if (creation == null || creation.isInitializing()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void removeCreation(Creation creation) {
+        for (Entry<Pair<String,Long>,Triple> entry : cache.entrySet()) {
+            if (entry.getValue().creation == creation) {
+                cache.remove(entry.getKey(), entry.getValue());
+            }
+        }
+    }
 
     /**
      * Add the provided QueryLogic to the QueryLogicCache.
@@ -148,7 +358,7 @@ public class CreatedQueryLogicCacheBean {
         if (entry != null) {
             if (userId.equals(entry.getValue().userID)) {
                 return tripToPair.apply(entry.getValue());
-            } else {
+            } else if (entry.getValue().creation == null) {
                 cache.put(entry.getKey(), entry.getValue());
             }
         }
@@ -169,6 +379,15 @@ public class CreatedQueryLogicCacheBean {
             if (activePair == null) {
                 if (log.isDebugEnabled()) {
                     log.debug("Could not find identified pair needing qlCache eviction. Someone removed him from underneath us");
+                }
+                continue;
+            }
+
+            if (activePair instanceof Creation) {
+                try {
+                    ((Creation) activePair).close(connectionFactory);
+                } catch (Exception e) {
+                    log.error("Could not complete creation cleanup for " + entry.getKey(), e);
                 }
                 continue;
             }
@@ -209,7 +428,15 @@ public class CreatedQueryLogicCacheBean {
     private Entry<Pair<String,Long>,Triple> get(String queryId) {
         for (Pair<String,Long> key : cache.keySet()) {
             if (key.getLeft().equals(queryId)) {
-                return Maps.immutableEntry(key, cache.remove(key));
+                Triple value = cache.get(key);
+                if (value != null && value.creation != null) {
+                    // The creating caller may still be initializing or a failed return may need another API cleanup attempt.
+                    return Maps.immutableEntry(key, value);
+                }
+                value = cache.remove(key);
+                if (value != null) {
+                    return Maps.immutableEntry(key, value);
+                }
             }
         }
 

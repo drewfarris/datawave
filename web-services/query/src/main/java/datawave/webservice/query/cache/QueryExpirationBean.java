@@ -305,6 +305,17 @@ public class QueryExpirationBean {
             // Capture accounting before evaluating eligibility: an old query's cancellation can overlap a replacement reset.
             QueryHeartbeat heartbeat = queryLimiter.getQueryHeartbeat(queryId);
             RunningQuery query = queryCache.get(queryId);
+            if (query == null) {
+                if (queryLogicCacheBean != null && queryLogicCacheBean.isInitializing(queryId)) {
+                    continue;
+                }
+                // Creation may have published and retired its temporary owner since the first cache lookup.
+                query = queryCache.get(queryId);
+            }
+            if (query != null && query.isClientAcquisitionInProgress()) {
+                // A newly counted reset still carries the preceding execution's flags until setClient starts.
+                continue;
+            }
             if (query == null || query.isFinished() || query.isCanceled()) {
                 queryLimiter.stopCountingQueryTowardsLimits(queryId, heartbeat);
             }

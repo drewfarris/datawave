@@ -139,6 +139,7 @@ import datawave.webservice.common.exception.UnauthorizedException;
 import datawave.webservice.query.annotation.EnrichQueryMetrics;
 import datawave.webservice.query.cache.ClosedQueryCache;
 import datawave.webservice.query.cache.CreatedQueryLogicCacheBean;
+import datawave.webservice.query.cache.CreatedQueryLogicCacheBean.Creation;
 import datawave.webservice.query.cache.QueryCache;
 import datawave.webservice.query.cache.QueryTraceCache;
 import datawave.webservice.query.cache.RunningQueryTimingImpl;
@@ -727,6 +728,8 @@ public class QueryExecutorBean implements QueryExecutor {
         AccumuloClient client = null;
         AccumuloConnectionFactory.Priority priority;
         RunningQuery rq = null;
+        Creation creation = null;
+        boolean locked = false;
         try {
             // Default hasResults to true. If a query logic is actually able to set this value,
             // then their value will overwrite this one. Otherwise, we return true so that
@@ -774,28 +777,42 @@ public class QueryExecutorBean implements QueryExecutor {
                 }
             }
 
+            // Keep reset/next from acquiring the same ID until creation has transferred or cleaned up its loan.
+            if (!queryCache.lock(q.getId().toString())) {
+                throw new QueryException(DatawaveErrorCode.QUERY_LOCKED_ERROR);
+            }
+            locked = true;
+            creation = qlCache.addForCreation(q.getId().toString(), qd.userid, qd.logic);
             priority = qd.logic.getConnectionPriority();
             Map<String,String> trackingMap = connectionFactory.getTrackingMap(Thread.currentThread().getStackTrace());
             q.populateTrackingMap(trackingMap);
             accumuloConnectionRequestBean.requestBegin(q.getId().toString(), qd.userDn, trackingMap);
             try {
+                creation.checkForCancellation();
                 client = connectionFactory.getClient(qd.userDn, qd.proxyServers, qd.logic.getConnPoolName(), priority, trackingMap);
+                creation.acquiredClient(client);
             } finally {
                 accumuloConnectionRequestBean.requestEnd(q.getId().toString());
             }
 
             // Consider this query to be active when determining query limits.
-            markQueryAsActive(qd.logic, q.getId().toString(), qd.userDn, q.getSystemFrom(), q.getQueryLogicName());
+            creation.checkForCancellation();
+            try {
+                markQueryAsActive(qd.logic, q.getId().toString(), qd.userDn, q.getSystemFrom(), q.getQueryLogicName());
+            } finally {
+                if (qd.logic.isQueryLimiterEnabled()) {
+                    creation.setHeartbeat(queryLimiter, queryLimiter.getQueryHeartbeat(q.getId().toString()));
+                }
+            }
 
             boolean shouldTraceQuery = shouldTraceQuery(qp.getQuery(), qd.userid, qp.isTrace());
             if (shouldTraceQuery) {
                 // TODO: OTEL-based tracing setup here
             }
 
-            // hold on to a reference of the query logic so we cancel it if need be.
-            qlCache.add(q.getId().toString(), qd.userid, qd.logic, client);
             rq = new RunningQuery(metrics, null, priority, qd.logic, q, qp.getAuths(), qd.p,
                             new RunningQueryTimingImpl(queryExpirationConf, qp.getPageTimeout()), this.predictor, this.userOperationsBean, this.metricFactory);
+            creation.attach(rq);
             rq.setExecutor(executor);
             rq.setActiveCall(true);
             try {
@@ -804,7 +821,7 @@ public class QueryExecutorBean implements QueryExecutor {
 
                 // Put in the cache by id. Don't put the cache in by name because multiple users may use the same name
                 // and only the last one will be in the cache.
-                queryCache.put(q.getId().toString(), rq);
+                creation.publish(queryCache);
 
                 response.setResult(q.getId().toString());
                 updateMessages(q, response);
@@ -823,25 +840,21 @@ public class QueryExecutorBean implements QueryExecutor {
                 rq.getMetric().setError(t);
             }
 
-            // close the logic on exception
-            try {
-                if (null != qd.logic) {
-                    qd.logic.close();
-                }
-            } catch (Exception e) {
-                log.error("Exception occured while closing query logic; may be innocuous if scanners were running.", e);
-            }
-
-            if (null != client) {
+            if (creation != null) {
                 try {
-                    connectionFactory.returnClient(client);
+                    creation.close(connectionFactory);
                 } catch (Exception e) {
-                    log.error("Error returning connection on failed create", e);
+                    log.error("Error completing failed creation cleanup", e);
                 }
-            }
-
-            if (q != null && q.getId() != null) {
-                markQueryAsInactive(qd.logic, q.getId().toString());
+            } else {
+                // No creation owner exists if validation, persistence, auditing, or lock admission failed.
+                try {
+                    if (qd.logic != null) {
+                        qd.logic.close();
+                    }
+                } catch (Exception e) {
+                    log.error("Error closing logic on failed create", e);
+                }
             }
 
             try {
@@ -877,9 +890,12 @@ public class QueryExecutorBean implements QueryExecutor {
                 throw new DatawaveWebApplicationException(qe, response, statusCode);
             }
         } finally {
-            if (null != q) {
-                // - Remove the logic from the cache
-                qlCache.poll(q.getId().toString());
+            if (creation != null) {
+                // Keep a pending or failed return in the temporary cache; successful publication transfers ownership to RunningQuery.
+                creation.finish();
+            }
+            if (locked) {
+                queryCache.unlock(q.getId().toString());
             }
         }
     }
@@ -2412,15 +2428,7 @@ public class QueryExecutorBean implements QueryExecutor {
                 }
                 response.addMessage(id + " closed.");
             } else {
-                QueryLogic<?> logic = tuple.getLeft();
-                try {
-                    logic.close();
-                } catch (Exception e) {
-                    log.error("Exception occurred while closing query logic; may be innocuous if scanners were running.", e);
-                }
-
-                markQueryAsInactive(logic, id);
-                connectionFactory.returnClient(tuple.getRight());
+                closeCreatingQuery(id, tuple);
                 response.addMessage(id + " closed before create completed.");
             }
 
@@ -2474,19 +2482,8 @@ public class QueryExecutorBean implements QueryExecutor {
                 }
                 response.addMessage(id + " closed.");
             } else {
-                QueryLogic<?> logic = tuple.getLeft();
-                try {
-                    logic.close();
-                } catch (Exception e) {
-                    log.error("Exception occurred while closing query logic; may be innocuous if scanners were running.", e);
-                }
-
-                try {
-                    connectionFactory.returnClient(tuple.getRight());
-                    response.addMessage(id + " closed before create completed.");
-                } finally {
-                    markQueryAsInactive(logic, id);
-                }
+                closeCreatingQuery(id, tuple);
+                response.addMessage(id + " closed before create completed.");
             }
 
             return response;
@@ -2498,6 +2495,25 @@ public class QueryExecutorBean implements QueryExecutor {
             response.addException(qe.getBottomQueryException());
             int statusCode = qe.getBottomQueryException().getStatusCode();
             throw new DatawaveWebApplicationException(qe, response, statusCode);
+        }
+    }
+
+    private void closeCreatingQuery(String id, Pair<QueryLogic<?>,AccumuloClient> tuple) throws Exception {
+        if (tuple instanceof Creation) {
+            ((Creation) tuple).close(connectionFactory);
+        } else {
+            // Preserve the legacy temporary-cache API for callers that registered a raw logic/client pair.
+            QueryLogic<?> logic = tuple.getLeft();
+            try {
+                logic.close();
+            } catch (Exception e) {
+                log.error("Error closing creating query logic", e);
+            }
+            try {
+                connectionFactory.returnClient(tuple.getRight());
+            } finally {
+                markQueryAsInactive(logic, id);
+            }
         }
     }
 
@@ -2594,19 +2610,8 @@ public class QueryExecutorBean implements QueryExecutor {
                 }
                 response.addMessage(id + " canceled.");
             } else {
-                QueryLogic<?> logic = tuple.getLeft();
-                try {
-                    logic.close();
-                } catch (Exception e) {
-                    log.error("Exception occurred while canceling query logic; may be innocuous if scanners were running.", e);
-                }
-
-                try {
-                    connectionFactory.returnClient(tuple.getRight());
-                    response.addMessage(id + " closed before create completed due to cancel.");
-                } finally {
-                    markQueryAsInactive(logic, id);
-                }
+                closeCreatingQuery(id, tuple);
+                response.addMessage(id + " closed before create completed due to cancel.");
             }
 
             // no longer need to remember this query
@@ -2660,15 +2665,7 @@ public class QueryExecutorBean implements QueryExecutor {
                 }
                 response.addMessage(id + " closed.");
             } else {
-                QueryLogic<?> logic = tuple.getLeft();
-                try {
-                    logic.close();
-                } catch (Exception e) {
-                    log.error("Exception occurred while canceling query logic; may be innocuous if scanners were running.", e);
-                }
-
-                markQueryAsInactive(logic, id);
-                connectionFactory.returnClient(tuple.getRight());
+                closeCreatingQuery(id, tuple);
                 response.addMessage(id + " closed before create completed due to cancel.");
             }
 

@@ -505,6 +505,15 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
     }
 
     /**
+     * @return whether reset still owns an admitted acquisition or initialization
+     */
+    public boolean isClientAcquisitionInProgress() {
+        synchronized (running) {
+            return pendingClientAcquisitions > 0;
+        }
+    }
+
+    /**
      * Keep the cleanup owner cached while a reset may acquire a client or an owned client's return is pending or has failed.
      *
      * @return whether this query owns a client, an admitted acquisition, or a pending client return
@@ -605,6 +614,8 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                             publishWorkMetrics(workMetric);
                         }
                     }
+                    // A filtered row can exhaust the budget without making any result available.
+                    signalResultsThreadWaiters();
                 }
             }
         } catch (Exception e) {
@@ -743,6 +754,9 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                 if (generation != resultsThreadGeneration.get() || finished || canceled || removalRequested) {
                     return false;
                 }
+                if (isWorkLimitReached()) {
+                    return false;
+                }
                 if (available.get() > 0) {
                     return true;
                 }
@@ -772,6 +786,10 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             synchronized (available) {
                 throwResultsThreadException();
                 if (generation != resultsThreadGeneration.get()) {
+                    return false;
+                }
+                // Recheck under the wait monitor so publication cannot notify between this check and wait().
+                if (isWorkLimitReached()) {
                     return false;
                 }
                 if (available.get() == 0 && !finished && !canceled && !resultsThreadFinished && !resultsThreadStopped) {
@@ -1293,11 +1311,12 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                     }
                 }
             }
-            closeLogic();
         } catch (Exception e) {
             recoverClientAfterFailedReturn(closingClient, closingLease);
             throw e;
         } finally {
+            // Logic-owned resources must close even while the factory's failed loan remains available for retry.
+            closeLogic();
             if (closingClient != null) {
                 synchronized (running) {
                     pendingClientReturns--;
