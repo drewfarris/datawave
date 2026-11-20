@@ -2112,6 +2112,310 @@ public class QueryExecutorBeanTest {
         }
     }
 
+    /**
+     * A lookup that observed a cache miss could finish after creation published its live query. Its unconditional put replaced the sole owner of the creator's
+     * pool loan with a disconnected definition; API close then returned no client. Hold the real persisted lookup, finish creation, and only then release it.
+     * Administrative close starts while creation is still auditing, before temporary-cache registration, so it reaches the administrative persisted loader.
+     * Reset's second borrow is rejected deliberately: the winner must return its old loan before that failure, rather than act on an uncached local definition.
+     * The after-publication GET is the uncontended control. All cases use real cache and pool ownership, with client construction and persistence mocked.
+     *
+     * @param action
+     *            the lookup caller
+     * @param afterPublication
+     *            whether GET begins only after creation has published
+     */
+    @ParameterizedTest
+    @CsvSource({"get, false", "reset, false", "adminClose, false", "get, true"})
+    @Timeout(15)
+    public void persistedLookupPreservesTheQueryPublishedWhileItWasLoading(String action, boolean afterPublication) throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            QueryLogic<Object> logic = logicForCreation(settings);
+            String id = settings.getId().toString();
+            CountDownLatch creating = new CountDownLatch(1);
+            CountDownLatch releaseCreation = new CountDownLatch(1);
+            CountDownLatch loading = new CountDownLatch(1);
+            CountDownLatch releaseLookup = new CountDownLatch(1);
+            Answer<List<Query>> load = invocation -> {
+                loading.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releaseLookup, 5, TimeUnit.SECONDS), "Persisted lookup was not released");
+                return Collections.singletonList(settings);
+            };
+            when(persister.findById(id)).thenAnswer(load);
+            when(persister.adminFindById(id)).thenAnswer(load);
+            if ("adminClose".equals(action)) {
+                when(logic.getAuditType(settings)).thenAnswer(invocation -> {
+                    creating.countDown();
+                    assertTrue(Uninterruptibles.awaitUninterruptibly(releaseCreation, 5, TimeUnit.SECONDS), "Creation audit was not released");
+                    return AuditType.NONE;
+                });
+            } else {
+                when(logic.initialize(any(), any(), any())).thenAnswer(invocation -> {
+                    creating.countDown();
+                    assertTrue(Uninterruptibles.awaitUninterruptibly(releaseCreation, 5, TimeUnit.SECONDS), "Creation initialization was not released");
+                    return mock(GenericQueryConfiguration.class);
+                });
+            }
+            if ("reset".equals(action)) {
+                AtomicInteger borrows = new AtomicInteger();
+                doAnswer(invocation -> {
+                    if (borrows.incrementAndGet() > 1) {
+                        throw new IOException("Reject the reset's second borrow before entering the one-client pool");
+                    }
+                    return invocation.callRealMethod();
+                }).when(factory).getClient(any(), any(), any(), any(), any());
+            }
+            ExecutorService requests = Executors.newFixedThreadPool(2);
+            RunningQuery published = null;
+            MultivaluedMap<String,String> parameters = createNewQueryParameterMap();
+            try {
+                Future<?> create = requests.submit(() -> bean.createQuery(settings.getQueryLogicName(), parameters));
+                assertTrue(creating.await(2, TimeUnit.SECONDS));
+                Future<?> lookup = afterPublication ? null : requests.submit(() -> {
+                    if ("reset".equals(action)) {
+                        return bean.reset(id);
+                    } else if ("adminClose".equals(action)) {
+                        return bean.adminClose(id);
+                    } else {
+                        return bean.get(id);
+                    }
+                });
+                if (!afterPublication) {
+                    assertTrue(loading.await(2, TimeUnit.SECONDS), "Lookup did not start loading the absent definition");
+                }
+                releaseCreation.countDown();
+                create.get(2, TimeUnit.SECONDS);
+                published = cache.get(id);
+                assertNotNull(published);
+                assertSame(client, published.getClient());
+                assertEquals(1, pool.getNumActive());
+                assertTrue(qlCache.snapshot().isEmpty(), "Successful creation must transfer its loan to the running cache");
+                if (afterPublication) {
+                    bean.get(id);
+                } else {
+                    releaseLookup.countDown();
+                    if ("reset".equals(action)) {
+                        Future<?> reset = lookup;
+                        ExecutionException failure = assertThrows(ExecutionException.class, () -> reset.get(2, TimeUnit.SECONDS));
+                        assertInstanceOf(DatawaveWebApplicationException.class, failure.getCause());
+                    } else {
+                        lookup.get(2, TimeUnit.SECONDS);
+                    }
+                }
+                if ("adminClose".equals(action)) {
+                    assertNull(cache.get(id));
+                    assertNull(published.getClient(), "Administrative lookup closed a disconnected replacement instead of the published owner");
+                } else {
+                    assertSame(published, cache.get(id), "Delayed lookup replaced the live loan owner");
+                    if ("reset".equals(action)) {
+                        assertNull(published.getClient(), "Reset must use the winning cached query and retire its preceding loan");
+                        assertEquals(0, pool.getNumActive(), "Reset ignored the cached winner and orphaned its loan");
+                    }
+                    bean.adminClose(id);
+                }
+                assertEquals(0, pool.getNumActive(), "API close could not reach the original creator's loan");
+                assertFalse(pool.connectorCameFromHere(client));
+                assertNull(cache.get(id));
+            } finally {
+                releaseCreation.countDown();
+                releaseLookup.countDown();
+                requests.shutdownNow();
+                assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+                if (published != null) {
+                    published.closeConnection(factory);
+                }
+                returnTrackedClients(pool, client);
+                logic.close();
+            }
+        }
+    }
+
+    /**
+     * Interrupted reset initialization returned its client but skipped the ordinary failure path's limiter cleanup. Only metric lifecycle became CANCELLED, so
+     * reconciliation still treated the disconnected cached query as active. Throw after enrollment from initialize or setup and verify the real heartbeat and
+     * node are stopped even if the client return fails and remains owned for retry. IOException is the ordinary-failure control; the request must retain its
+     * interruption flag. Cleanup assertions run after the real periodic reconciliation method.
+     */
+    @ParameterizedTest
+    @CsvSource({"initialize, true, false", "setup, true, false", "initialize, false, false", "setup, false, false", "initialize, true, true",
+            "setup, true, true"})
+    @Timeout(15)
+    public void interruptedResetStopsItsHeartbeatIndependentlyOfClientCleanup(String phase, boolean interrupted, boolean failReturn) throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            settings.setOwner("owner");
+            String id = settings.getId().toString();
+            QueryLogic<Object> logic = mock(QueryLogic.class);
+            RunningQuery query = queryForReset(null, settings, logic);
+            cache.put(id, query);
+            when(logic.isQueryLimiterEnabled()).thenReturn(true);
+            Answer<Object> failInitialization = invocation -> {
+                if (interrupted) {
+                    throw new InterruptedException("Initialization interrupted after heartbeat enrollment");
+                }
+                throw new IOException("Initialization failed after heartbeat enrollment");
+            };
+            if ("initialize".equals(phase)) {
+                when(logic.initialize(any(), any(), any())).thenAnswer(failInitialization);
+            } else {
+                doAnswer(failInitialization).when(logic).setupQuery(any());
+            }
+            AtomicBoolean nodeClosed = new AtomicBoolean();
+            QueryHeartbeat heartbeat = heartbeatWithNode(id, nodeClosed);
+            QueryHeartbeatCache heartbeats = new QueryHeartbeatCache();
+            QueryLimiter limiter = spy(new QueryLimiter());
+            limiter.setHeartbeatCache(heartbeats);
+            doReturn(QueryLimiterResponse.hasNotMetLimit()).when(limiter).checkForLimits(any(), any(), any());
+            doAnswer(invocation -> {
+                heartbeats.put(heartbeat);
+                return null;
+            }).when(limiter).countQueryTowardsLimits(any(), any(), any(), any());
+            ReflectionTestUtils.setField(bean, "queryLimiter", limiter);
+            AtomicBoolean rejectReturn = new AtomicBoolean(failReturn);
+            doAnswer(invocation -> {
+                if (rejectReturn.get()) {
+                    throw new IOException("Factory rejects return without releasing the loan");
+                }
+                return invocation.callRealMethod();
+            }).when(factory).returnClient(client);
+            ExecutorService requests = Executors.newSingleThreadExecutor();
+            try {
+                Future<Boolean> reset = requests.submit(() -> {
+                    assertThrows(DatawaveWebApplicationException.class, () -> bean.reset(id));
+                    return Thread.currentThread().isInterrupted();
+                });
+                assertEquals(interrupted, reset.get(2, TimeUnit.SECONDS), "Reset lost or invented request interruption");
+                assertSame(query, cache.get(id));
+                assertEquals(failReturn ? 1 : 0, pool.getNumActive());
+                assertSame(failReturn ? client : null, query.getClient());
+                ReflectionTestUtils.invokeMethod(accountingReconciliation(limiter), "synchronizeActiveQueries");
+                assertNull(heartbeats.get(id), "Failed reset still consumes a limiter slot after reconciliation");
+                assertTrue(nodeClosed.get(), "Failed reset left its ephemeral limiter node open");
+                rejectReturn.set(false);
+                bean.adminClose(id);
+                assertEquals(0, pool.getNumActive());
+                assertNull(cache.get(id));
+            } finally {
+                rejectReturn.set(false);
+                requests.shutdownNow();
+                assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+                query.closeConnection(factory);
+                returnTrackedClients(pool, client);
+                heartbeats.shutdown();
+            }
+        }
+    }
+
+    /**
+     * QUERY_LOCKED_ERROR reached next's generic exception handler, which closed the cached query owned by the request holding that lock. The older lock test
+     * cached no query and could only detect an accidental unlock. Retain a real loan and initialized query here: rejected pagination must preserve both as well
+     * as the held lock. The unlocked control stubs only the page/response to avoid conflating admission with iterator or response-assembly failures.
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void rejectedNextPreservesTheLockHoldersQueryAndClient(boolean locked) throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            settings.setOwner("owner");
+            String id = settings.getId().toString();
+            QueryLogic<Object> logic = mock(QueryLogic.class);
+            RunningQuery query = spy(queryForReset(pool.borrowObject(new HashMap<>()), settings, logic));
+            cache.put(id, query);
+            when(logic.getCollectQueryMetrics()).thenReturn(true);
+            ResultsPage page = new ResultsPage(Collections.singletonList("row"), ResultsPage.Status.COMPLETE);
+            doReturn(page).when(query).next();
+            QueryLogicTransformer<Object,Object> transformer = mock(QueryLogicTransformer.class);
+            when(logic.getEnrichedTransformer(settings)).thenReturn(transformer);
+            when(transformer.createResponse(page)).thenReturn(new DefaultEventQueryResponse());
+            when(responseObjectFactory.getEventQueryResponse()).thenReturn(new DefaultEventQueryResponse());
+            if (locked) {
+                assertTrue(cache.lock(id));
+            }
+            try {
+                if (locked) {
+                    assertThrows(DatawaveWebApplicationException.class, () -> bean.next(id));
+                    assertFalse(cache.lock(id), "Rejected next released another request's lock");
+                    verify(query, times(0)).next();
+                } else {
+                    assertDoesNotThrow(() -> bean.next(id));
+                    assertTrue(cache.lock(id), "Successful next did not release its own lock");
+                }
+                assertSame(query, cache.get(id), "Admission rejection evicted another request's execution");
+                assertSame(client, query.getClient());
+                assertEquals(1, pool.getNumActive());
+                assertTrue(pool.connectorCameFromHere(client));
+                assertFalse(query.isMarkedForRemoval());
+                assertNull(query.getMetric().getErrorMessage(), "Admission rejection modified the holder's query metric");
+                verify(metrics, times(0)).updateMetric(any());
+                verify(factory, times(0)).returnClient(client);
+            } finally {
+                cache.unlock(id);
+                query.closeConnection(factory);
+                returnTrackedClients(pool, client);
+            }
+        }
+    }
+
+    /**
+     * Creation now holds the query ID lock through initialization, but a conflicting next still routed lock rejection through close(id). That cancelled the
+     * temporary creation owner and returned its installed loan, so an otherwise successful initializer could not publish. Hold a real create call in its
+     * initializer, reject concurrent pagination, then require creation to publish and ordinary close to return its loan exactly once.
+     */
+    @Test
+    @Timeout(15)
+    public void rejectedNextDoesNotCancelAnInitializingCreation() throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            QueryLogic<Object> logic = logicForCreation(settings);
+            String id = settings.getId().toString();
+            CountDownLatch initializing = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            when(logic.initialize(any(), any(), any())).thenAnswer(invocation -> {
+                initializing.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(release, 5, TimeUnit.SECONDS), "Creator was not released");
+                return mock(GenericQueryConfiguration.class);
+            });
+            when(responseObjectFactory.getEventQueryResponse()).thenReturn(new DefaultEventQueryResponse());
+            ExecutorService requests = Executors.newSingleThreadExecutor();
+            MultivaluedMap<String,String> parameters = createNewQueryParameterMap();
+            try {
+                Future<?> create = requests.submit(() -> bean.createQuery(settings.getQueryLogicName(), parameters));
+                assertTrue(initializing.await(2, TimeUnit.SECONDS));
+                assertThrows(DatawaveWebApplicationException.class, () -> bean.next(id));
+                assertEquals(1, pool.getNumActive(), "Lock rejection returned the creator's active loan");
+                assertFalse(cache.lock(id), "Lock rejection released the creator's lock");
+                assertTrue(qlCache.isInitializing(id), "Lock rejection cancelled the registered creation");
+                release.countDown();
+                assertDoesNotThrow(() -> create.get(2, TimeUnit.SECONDS), "Lock rejection must not make successful creation fail publication");
+                assertSame(client, cache.get(id).getClient());
+                bean.adminClose(id);
+                assertEquals(0, pool.getNumActive());
+                verify(factory).returnClient(client);
+            } finally {
+                release.countDown();
+                requests.shutdownNow();
+                assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+                if (cache.get(id) != null) {
+                    cache.get(id).closeConnection(factory);
+                }
+                returnTrackedClients(pool, client);
+                logic.close();
+            }
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private QueryLogic<Object> logicForCreation(QueryImpl settings) throws Exception {
         defineTestRunner(settings, createNewQueryParameterMap());

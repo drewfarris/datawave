@@ -1439,15 +1439,19 @@ public class RunningQueryAsyncLifecycleTest {
                 awaitResultWait(query, "getNext");
             }
             releaseFiltered.countDown();
-            assertTrue(backendBlocked.await(2, TimeUnit.SECONDS), "Producer did not publish work before starting further backend work");
-            Object generationLock = ReflectionTestUtils.getField(query, "running");
-            synchronized (generationLock) {
-                assertWorkMetrics(query, seekBudget ? 0 : 100, seekBudget ? 100 : 0);
+            if (publishBeforeRequest) {
+                // No request is active in this control. Reaching backend work proves publication completed before next starts.
+                assertTrue(backendBlocked.await(2, TimeUnit.SECONDS), "Producer did not publish work before the control request");
             }
             Future<ResultsPage> waitingPage = page;
             ResultsPage result = publishBeforeRequest ? query.next()
                             : assertDoesNotThrow(() -> waitingPage.get(1, TimeUnit.SECONDS),
                                             "Published work exhaustion must finish the wait without another row");
+            // A fixed waiting request may stop the producer before another backend call begins; completion itself proves it observed publication.
+            Object generationLock = ReflectionTestUtils.getField(query, "running");
+            synchronized (generationLock) {
+                assertWorkMetrics(query, seekBudget ? 0 : 100, seekBudget ? 100 : 0);
+            }
             if (samePage) {
                 assertEquals(Collections.singletonList("first"), result.getResults());
                 result = query.next();
@@ -1455,6 +1459,85 @@ public class RunningQueryAsyncLifecycleTest {
             assertEquals(ResultsPage.Status.NONE, result.getStatus());
             assertTrue(result.getResults().isEmpty());
             assertEquals(BaseQueryMetric.Lifecycle.MAXWORK, query.getMetric().getLifecycle());
+            assertEquals(1L, ReflectionTestUtils.getField(query, "numResults"));
+        } finally {
+            releaseFiltered.countDown();
+            releaseBackend.countDown();
+        }
+    }
+
+    /**
+     * Work exhaustion during a request containing one row returned that row but only empty pages completed the producer. With no subsequent next call, filtered
+     * rows kept the queue empty, so the worker continued consuming backend work beyond the acknowledged budget. RESULTS also overwrote MAXWORK. Hold the second
+     * transformed row until the caller is waiting, publish next/seek exhaustion, and inspect the returned page before requesting anything else. Release any
+     * already-started backend call and run a sentinel on the same executor: its completion gives a deterministic final row count. An immediate final next is
+     * the former cleanup control; it stopped the extra work even before the nonempty-page fix.
+     */
+    @ParameterizedTest
+    @CsvSource({"false, false", "true, false", "false, true", "true, true"})
+    public void nonemptyWorkLimitedPageStopsBackendProductionWithoutAnotherRequest(boolean seekBudget, boolean terminalNext) throws Exception {
+        CountDownLatch filtered = new CountDownLatch(1);
+        CountDownLatch releaseFiltered = new CountDownLatch(1);
+        CountDownLatch releaseBackend = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        Iterator<Object> rows = new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+                if (calls.get() == 2) {
+                    // One hasNext may already be in flight when the request observes exhausted work. It must not admit subsequent next calls.
+                    assertTrue(Uninterruptibles.awaitUninterruptibly(releaseBackend, 5, TimeUnit.SECONDS), "Backend call was not released");
+                }
+                return calls.get() < 8;
+            }
+
+            @Override
+            public Object next() {
+                if (calls.incrementAndGet() == 1) {
+                    return "first";
+                }
+                if (calls.get() == 2) {
+                    filtered.countDown();
+                    assertTrue(Uninterruptibles.awaitUninterruptibly(releaseFiltered, 5, TimeUnit.SECONDS), "Filtered row was not released");
+                }
+                return "filtered";
+            }
+        };
+        MetricsTransformer transformer = new MetricsTransformer(0, 0) {
+            private long work;
+
+            @Override
+            public Object transform(Object value) {
+                work = "first".equals(value) ? 1 : Math.max(100, work + 1);
+                setWorkCounts(seekBudget ? 0 : work, seekBudget ? work : 0);
+                return "first".equals(value) ? value : null;
+            }
+        };
+        ExecutorService producer = executor();
+        RunningQuery query = query(producer, Collections.<Object> singletonList("unused").iterator(), 2);
+        when(query.getLogic().getMaxWork()).thenReturn(100L);
+        when(query.getLogic().getTransformIterator(query.getSettings())).thenReturn(new TransformIterator<>(rows, transformer));
+        query.setClient(mock(AccumuloClient.class));
+        try {
+            Future<ResultsPage> page = executor().submit(query::next);
+            assertTrue(filtered.await(2, TimeUnit.SECONDS));
+            awaitResultWait(query, "getNext");
+            releaseFiltered.countDown();
+            ResultsPage result = assertDoesNotThrow(() -> page.get(1, TimeUnit.SECONDS));
+            assertEquals(Collections.singletonList("first"), result.getResults());
+            BaseQueryMetric.Lifecycle returnedLifecycle = query.getMetric().getLifecycle();
+            if (terminalNext) {
+                assertEquals(ResultsPage.Status.NONE, query.next().getStatus());
+            }
+            releaseBackend.countDown();
+            producer.submit(() -> {}).get(2, TimeUnit.SECONDS);
+            assertEquals(2, calls.get(), "The producer consumed further filtered rows after returning its work-limited page");
+            assertWorkMetrics(query, seekBudget ? 0 : 100, seekBudget ? 100 : 0);
+            assertEquals(BaseQueryMetric.Lifecycle.MAXWORK, query.getMetric().getLifecycle());
+            if (!terminalNext) {
+                assertEquals(BaseQueryMetric.Lifecycle.MAXWORK, returnedLifecycle, "Returning collected results hid the work cutoff");
+                assertTrue(query.isFinished(), "Work-limited completion must be visible without another client request");
+                assertEquals(ResultsPage.Status.NONE, query.next().getStatus());
+            }
             assertEquals(1L, ReflectionTestUtils.getField(query, "numResults"));
         } finally {
             releaseFiltered.countDown();
