@@ -1113,7 +1113,12 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             // if the last hasNext() call failed, then we would catch the exception here
             testForUncaughtException(resultList.size());
 
-            if (resultList.isEmpty() && !hitIntermediateResult && !hitShortCircuitForLongRunningQuery) {
+            boolean hitWorkLimit = asynchronous && isWorkLimitReached();
+            if (hitWorkLimit) {
+                // Keep the collected page, but do not leave an exhausted producer scanning filtered rows between requests.
+                this.finished = true;
+            }
+            if (hitWorkLimit || (resultList.isEmpty() && !hitIntermediateResult && !hitShortCircuitForLongRunningQuery)) {
                 // Account for pending work before finally submits the final metric.
                 if (asynchronous) {
                     completeResultsThread();
@@ -1133,7 +1138,7 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                 }
             }
             this.lastPageNumber.incrementAndGet();
-            if (!resultList.isEmpty()) {
+            if (!resultList.isEmpty() && !hitWorkLimit) {
                 this.getMetric().setLifecycle(QueryMetric.Lifecycle.RESULTS);
             }
         } catch (Exception e) {

@@ -1189,12 +1189,20 @@ public class QueryExecutorBean implements QueryExecutor {
             RunningQuery query = new RunningQuery(metrics, null, priority, logic, q, q.getQueryAuthorizations(), p,
                             new RunningQueryTimingImpl(queryExpirationConf, qp.getPageTimeout()), this.predictor, this.userOperationsBean, this.metricFactory);
             query.setExecutor(executor);
+            query = cachePersistedQuery(query);
+            if (!query.getSettings().getOwner().equals(userid)) {
+                throw new UnauthorizedQueryException(DatawaveErrorCode.QUERY_OWNER_MISMATCH,
+                                MessageFormat.format("{0} != {1}", userid, query.getSettings().getOwner()));
+            }
             results.add(query);
-            // Put in the cache by id if its not already in the cache.
-            if (!queryCache.containsKey(q.getId().toString()))
-                queryCache.put(q.getId().toString(), query);
         }
         return results;
+    }
+
+    private RunningQuery cachePersistedQuery(RunningQuery query) {
+        // Loading can overlap creation's publication. Never replace its live loan owner, and make reset/close use the winning cached instance.
+        RunningQuery existing = queryCache.putIfAbsent(query.getSettings().getId().toString(), query);
+        return existing == null ? query : existing;
     }
 
     private RunningQuery getQueryById(String id) throws Exception {
@@ -1228,15 +1236,18 @@ public class QueryExecutorBean implements QueryExecutor {
                                 new RunningQueryTimingImpl(queryExpirationConf, qp.getPageTimeout()), this.predictor, this.userOperationsBean,
                                 this.metricFactory);
                 query.setExecutor(executor);
-                // Put in the cache by id and name, we will have two copies that reference the same object
-                queryCache.put(q.getId().toString(), query);
+                RunningQuery loaded = query;
+                query = cachePersistedQuery(loaded);
+                if (query == loaded) {
+                    // Persisted lookup is scoped to this caller; a concurrent cache winner needs the normal ownership check below.
+                    return query;
+                }
             }
-        } else {
-            // Check to make sure that this query belongs to current user.
-            if (!query.getSettings().getOwner().equals(userid)) {
-                throw new UnauthorizedQueryException(DatawaveErrorCode.QUERY_OWNER_MISMATCH,
-                                MessageFormat.format("{0} != {1}", userid, query.getSettings().getOwner()));
-            }
+        }
+        // Check to make sure that this query belongs to current user.
+        if (!query.getSettings().getOwner().equals(userid)) {
+            throw new UnauthorizedQueryException(DatawaveErrorCode.QUERY_OWNER_MISMATCH,
+                            MessageFormat.format("{0} != {1}", userid, query.getSettings().getOwner()));
         }
         return query;
     }
@@ -1265,8 +1276,7 @@ public class QueryExecutorBean implements QueryExecutor {
                             new RunningQueryTimingImpl(queryExpirationConf, qp.getPageTimeout()), this.predictor, this.metricFactory);
             query.setExecutor(executor);
 
-            // Put in the cache by id and name, we will have two copies that reference the same object
-            queryCache.put(q.getId().toString(), query);
+            query = cachePersistedQuery(query);
         }
 
         return query;
@@ -1404,6 +1414,10 @@ public class QueryExecutorBean implements QueryExecutor {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             returnClientAfterFailedReset(query, client, initializationStarted);
+            if (resetHeartbeat != null) {
+                // Interruption after enrollment is a failed execution even when no other caller has requested removal.
+                markQueryAsInactive(query.getLogic(), id, resetHeartbeat);
+            }
             if (query != null) {
                 query.getMetric().setLifecycle(QueryMetric.Lifecycle.CANCELLED);
             }
@@ -2300,7 +2314,7 @@ public class QueryExecutorBean implements QueryExecutor {
             throw e;
         } catch (Exception e) {
             log.error("Query Failed", e);
-            if (query != null) {
+            if (locked && query != null) {
                 if (query.getLogic().getCollectQueryMetrics()) {
                     query.getMetric().setError(e);
                     try {
@@ -2317,16 +2331,19 @@ public class QueryExecutorBean implements QueryExecutor {
             }
 
             QueryException qe = new QueryException(DatawaveErrorCode.QUERY_NEXT_ERROR, e, MessageFormat.format("query id: {0}", id));
-            if (e.getCause() instanceof NoResultsException) {
+            if (locked && e.getCause() instanceof NoResultsException) {
                 log.debug("Got a nested NoResultsException", e);
                 close(id);
                 closedQueryCache.add(id); // remember that we auto-closed this query
             } else {
-                try {
-                    close(id);
-                    closedQueryCache.add(id); // remember that we auto-closed this query
-                } catch (Exception ce) {
-                    log.error(qe, ce);
+                // Admission rejection belongs to this request, not to the query owned by the lock holder.
+                if (locked) {
+                    try {
+                        close(id);
+                        closedQueryCache.add(id); // remember that we auto-closed this query
+                    } catch (Exception ce) {
+                        log.error(qe, ce);
+                    }
                 }
                 log.error(qe, e);
                 response.addException(qe.getBottomQueryException());

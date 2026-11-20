@@ -56,6 +56,19 @@ public abstract class AbstractQueryCache<T extends AbstractRunningQuery> impleme
     }
 
     /**
+     * Cache a loaded definition only if no query has been published under its ID. Return the current owner when another caller installed one first.
+     *
+     * @param id
+     *            the query identifier
+     * @param query
+     *            the candidate query
+     * @return the previously cached query, or null if this candidate was installed
+     */
+    public T putIfAbsent(String id, T query) {
+        return cache.asMap().putIfAbsent(id, query);
+    }
+
+    /**
      * Removes the query identified by {@code id} from the cache.
      *
      * @param id
