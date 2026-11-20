@@ -1295,6 +1295,7 @@ public class QueryExecutorBean implements QueryExecutor {
         QueryHeartbeat resetHeartbeat = null;
         boolean resetStarted = false;
         boolean initializationStarted = false;
+        boolean clientAcquisitionStarted = false;
         boolean locked = false;
         try {
             ctx.getUserTransaction().begin();
@@ -1360,7 +1361,8 @@ public class QueryExecutorBean implements QueryExecutor {
 
             // Allocate the connection for this query so we are ready to go when
             // they call next.
-            query.checkForRemoval();
+            query.beginClientAcquisition();
+            clientAcquisitionStarted = true;
             priority = query.getConnectionPriority();
             Map<String,String> trackingMap = connectionFactory.getTrackingMap(Thread.currentThread().getStackTrace());
             query.getSettings().populateTrackingMap(trackingMap);
@@ -1385,6 +1387,7 @@ public class QueryExecutorBean implements QueryExecutor {
             return response;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            returnClientAfterFailedReset(query, client, initializationStarted);
             if (query != null) {
                 query.getMetric().setLifecycle(QueryMetric.Lifecycle.CANCELLED);
             }
@@ -1395,13 +1398,7 @@ public class QueryExecutorBean implements QueryExecutor {
             throw new DatawaveWebApplicationException(qe, response, statusCode);
         } catch (Exception e) {
             log.error("Exception caught on resetting query", e);
-            try {
-                if (null != client) {
-                    query.returnClientOnInitializationFailure(connectionFactory, client, initializationStarted);
-                }
-            } catch (Exception e2) {
-                log.error("Error returning connection on failed reset", e2);
-            }
+            returnClientAfterFailedReset(query, client, initializationStarted);
 
             if (resetStarted) {
                 markQueryAsInactive(query.getLogic(), id);
@@ -1425,6 +1422,12 @@ public class QueryExecutorBean implements QueryExecutor {
                         log.error("Error completing removal after reset", e);
                     }
                 }
+            }
+            if (clientAcquisitionStarted) {
+                // End admission only after installed or failed-return ownership has taken over, including the removal retry above.
+                query.endClientAcquisition();
+            }
+            if (query != null && query.isMarkedForRemoval()) {
                 removeAfterClientCleanup(query);
             }
             // Only release the lock if this request acquired it; otherwise we would release another request's lock.
@@ -1443,6 +1446,16 @@ public class QueryExecutorBean implements QueryExecutor {
             }
         }
 
+    }
+
+    private void returnClientAfterFailedReset(RunningQuery query, AccumuloClient client, boolean initializationStarted) {
+        if (client != null) {
+            try {
+                query.returnClientOnInitializationFailure(connectionFactory, client, initializationStarted);
+            } catch (Exception e) {
+                log.error("Error returning connection on failed reset", e);
+            }
+        }
     }
 
     @Override

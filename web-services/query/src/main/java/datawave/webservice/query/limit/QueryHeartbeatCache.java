@@ -1,6 +1,5 @@
 package datawave.webservice.query.limit;
 
-import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executors;
@@ -91,7 +90,7 @@ public class QueryHeartbeatCache {
     public void put(QueryHeartbeat heartbeat) {
         // Add a listener to the heartbeat that will automatically trigger the heartbeat's eviction if it is ever stopped outside the cache's stop and remove
         // method.
-        heartbeat.setListener(new HeartbeatStoppedListener(this));
+        heartbeat.setListener(new HeartbeatStoppedListener(this, heartbeat));
         this.cache.put(heartbeat.getQueryId(), heartbeat);
     }
 
@@ -190,15 +189,12 @@ public class QueryHeartbeatCache {
      * cleanup interval that this {@link QueryHeartbeatCache} was configured with.
      */
     public void removeAllStoppedHeartbeats() {
-        Set<String> queryIds = new HashSet<>();
-        // Collect the query IDs of all heartbeats that are considered stopped.
         for (QueryHeartbeat heartbeat : cache.asMap().values()) {
             if (heartbeat.isStopped()) {
-                queryIds.add(heartbeat.getQueryId());
+                // Inspection can overlap reset. Remove only the stopped instance that was inspected.
+                stopAndRemoveHeartbeat(heartbeat.getQueryId(), heartbeat);
             }
         }
-        // Invalidate them.
-        this.cache.invalidateAll(queryIds);
     }
 
     /**
@@ -228,20 +224,30 @@ public class QueryHeartbeatCache {
     public static class HeartbeatStoppedListener {
 
         private final QueryHeartbeatCache cache;
+        private final QueryHeartbeat heartbeat;
 
         public HeartbeatStoppedListener(QueryHeartbeatCache cache) {
+            this(cache, null);
+        }
+
+        private HeartbeatStoppedListener(QueryHeartbeatCache cache, QueryHeartbeat heartbeat) {
             this.cache = cache;
+            this.heartbeat = heartbeat;
         }
 
         /**
-         * Notifies the listener that the {@link QueryHeartbeat} associated with the given query ID has been stopped. Any cached mapping for the query ID will
-         * be removed.
+         * Notifies the listener that its heartbeat has stopped. Cache-installed listeners remove only their captured instance, preserving a replacement under
+         * the same query ID. Listeners constructed without an instance retain their original ID-based behavior.
          *
          * @param queryId
          *            the query ID
          */
         public void heartbeatStopped(String queryId) {
-            this.cache.stopAndRemoveHeartbeat(queryId);
+            if (heartbeat != null) {
+                this.cache.stopAndRemoveHeartbeat(queryId, heartbeat);
+            } else {
+                this.cache.stopAndRemoveHeartbeat(queryId);
+            }
         }
     }
 }

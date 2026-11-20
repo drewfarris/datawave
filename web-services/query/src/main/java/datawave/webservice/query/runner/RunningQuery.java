@@ -80,6 +80,7 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
     private transient ClientLease initializationClientLease;
     private transient ClientLease lastAcceptedClientLease;
     private int pendingClientReturns;
+    private int pendingClientAcquisitions;
     private boolean initializationAttempted;
     // Administrative removal is terminal for this cached object, including the interval before cache eviction.
     private volatile boolean removalRequested;
@@ -480,13 +481,37 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
     }
 
     /**
-     * A detached client still belongs to its closer until its return completes. Keep that cleanup owner cached if the return is pending or has failed.
+     * Admit a reset's client acquisition before borrowing. Removal and admission share the same lock so the cached cleanup owner cannot disappear between the
+     * removal check and allocation, including while the borrowed client is not yet installed.
      *
-     * @return whether this query still owns a client or a pending client return
+     * @throws QueryException
+     *             if this query is being removed
+     */
+    public void beginClientAcquisition() throws QueryException {
+        synchronized (running) {
+            checkForRemoval();
+            pendingClientAcquisitions++;
+        }
+    }
+
+    /**
+     * Release acquisition ownership after installation or failure cleanup has transferred the loan to its installed lease, pending return, or retained failed
+     * return. A reset must balance each successful admission even if borrowing or initialization fails.
+     */
+    public void endClientAcquisition() {
+        synchronized (running) {
+            pendingClientAcquisitions--;
+        }
+    }
+
+    /**
+     * Keep the cleanup owner cached while a reset may acquire a client or an owned client's return is pending or has failed.
+     *
+     * @return whether this query owns a client, an admitted acquisition, or a pending client return
      */
     public boolean hasOutstandingClientLease() {
         synchronized (running) {
-            return client != null || pendingClientReturns > 0;
+            return client != null || pendingClientReturns > 0 || pendingClientAcquisitions > 0;
         }
     }
 
@@ -880,10 +905,13 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
 
     private boolean isWorkLimitReached() {
         long maxWork = this.logic.getMaxWork();
-        if (maxWork >= 0 && (this.getMetric().getNextCount() + this.getMetric().getSeekCount()) >= maxWork) {
-            log.info("Query logic max work has been reached, aborting query.next call");
-            this.getMetric().setLifecycle(QueryMetric.Lifecycle.MAXWORK);
-            return true;
+        synchronized (running) {
+            // Read the next/seek pair under the same lock used to publish the producer's work counters.
+            if (maxWork >= 0 && (this.getMetric().getNextCount() + this.getMetric().getSeekCount()) >= maxWork) {
+                log.info("Query logic max work has been reached, aborting query.next call");
+                this.getMetric().setLifecycle(QueryMetric.Lifecycle.MAXWORK);
+                return true;
+            }
         }
         return false;
     }
@@ -1014,6 +1042,11 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                     // now that we got the next object, acknowledge via the counters
                     gotNext.decrementAndGet();
                     hasNext.decrementAndGet();
+
+                    // getNext waits separately from hasNext. Honor work published during that wait before accepting or counting the row.
+                    if (asynchronous && isWorkLimitReached()) {
+                        break;
+                    }
 
                     if (o instanceof EventBase && ((EventBase) o).isIntermediateResult()) {
                         log.info("Received an intermediate result");

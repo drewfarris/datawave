@@ -1,6 +1,5 @@
 package datawave.webservice.query.cache;
 
-import java.util.HashSet;
 import java.util.Set;
 
 import javax.annotation.PostConstruct;
@@ -300,23 +299,15 @@ public class QueryExpirationBean {
     private void synchronizeActiveQueries() {
         // Fetch the set of queries considered active by the query limiter.
         Set<String> queryIds = queryLimiter.getActiveQueries();
-        Set<String> outdatedQueries = new HashSet<>();
 
         // Identify any queryIds that do not reference an actively running query.
         for (String queryId : queryIds) {
+            // Capture accounting before evaluating eligibility: an old query's cancellation can overlap a replacement reset.
+            QueryHeartbeat heartbeat = queryLimiter.getQueryHeartbeat(queryId);
             RunningQuery query = queryCache.get(queryId);
-            if (query != null) {
-                if (query.isFinished() || query.isCanceled()) {
-                    outdatedQueries.add(queryId);
-                }
-            } else {
-                outdatedQueries.add(queryId);
+            if (query == null || query.isFinished() || query.isCanceled()) {
+                queryLimiter.stopCountingQueryTowardsLimits(queryId, heartbeat);
             }
-        }
-
-        // Invalidate the outdated query IDs in the query limiter.
-        if (!outdatedQueries.isEmpty()) {
-            queryLimiter.stopCountingQueriesTowardsLimits(outdatedQueries);
         }
     }
 }
