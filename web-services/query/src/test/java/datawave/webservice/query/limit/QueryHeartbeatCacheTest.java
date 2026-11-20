@@ -2,11 +2,18 @@ package datawave.webservice.query.limit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatNoException;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.spy;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.curator.framework.CuratorFramework;
@@ -18,6 +25,9 @@ import org.apache.zookeeper.CreateMode;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
+
+import com.google.common.util.concurrent.Uninterruptibles;
 
 class QueryHeartbeatCacheTest {
 
@@ -219,6 +229,68 @@ class QueryHeartbeatCacheTest {
         assertThat(cache.get("queryId1")).isNull();
         assertThat(cache.get("queryId2")).isNull();
         assertThat(cache.get("queryId3")).isNull();
+    }
+
+    /**
+     * A replaced heartbeat retains its stopped listener. Its delayed stop previously removed the new heartbeat by shared query ID and closed the replacement's
+     * limiter nodes. Only the heartbeat reporting its own stop may be evicted; actual replacement nodes must remain started.
+     */
+    @Test
+    void stoppingReplacedHeartbeatPreservesReplacementAndItsNodes() throws Exception {
+        QueryHeartbeat old = createHeartbeat("queryId");
+        QueryHeartbeat replacement = createHeartbeat("queryId");
+        cache.put(old);
+        cache.put(replacement);
+        try {
+            old.stop();
+            assertNodesStopped(old);
+            assertThat(cache.get("queryId")).isSameAs(replacement);
+            replacement.getNodes().forEach(node -> assertThat(node.getActualPath()).isNotNull());
+            assertThat(replacement.isStopped()).isFalse();
+        } finally {
+            old.stopWithoutNotifyingListener();
+            replacement.stopWithoutNotifyingListener();
+        }
+    }
+
+    /**
+     * Scheduled cleanup selected a stopped heartbeat and invalidated its query ID later. A reset replacing that mapping during inspection lost its accounting
+     * entry while its nodes remained running. Hold a real stopped heartbeat's isStopped inspection, replace it, and require cleanup to retain the new mapping
+     * and its nodes. The existing stopped-heartbeat test remains the matching-instance eviction control.
+     */
+    @Test
+    @Timeout(15)
+    void stoppedHeartbeatSweepPreservesReplacementSelectedDuringInspection() throws Exception {
+        QueryHeartbeat old = spy(createHeartbeat("queryId"));
+        QueryHeartbeat replacement = createHeartbeat("queryId");
+        cache.put(old);
+        old.setListener(null);
+        old.stop();
+        CountDownLatch inspecting = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            boolean stopped = (boolean) invocation.callRealMethod();
+            inspecting.countDown();
+            assertTrue(Uninterruptibles.awaitUninterruptibly(release, 5, TimeUnit.SECONDS), "Stopped heartbeat inspection was not released");
+            return stopped;
+        }).when(old).isStopped();
+        ExecutorService cleaner = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> cleanup = cleaner.submit(cache::removeAllStoppedHeartbeats);
+            assertTrue(inspecting.await(2, TimeUnit.SECONDS), "Cleaner did not select the stopped heartbeat");
+            cache.put(replacement);
+            release.countDown();
+            cleanup.get(2, TimeUnit.SECONDS);
+            assertThat(cache.get("queryId")).isSameAs(replacement);
+            replacement.getNodes().forEach(node -> assertThat(node.getActualPath()).isNotNull());
+            assertThat(replacement.isStopped()).isFalse();
+        } finally {
+            release.countDown();
+            cleaner.shutdownNow();
+            assertTrue(cleaner.awaitTermination(3, TimeUnit.SECONDS));
+            old.stopWithoutNotifyingListener();
+            replacement.stopWithoutNotifyingListener();
+        }
     }
 
     private QueryHeartbeat createHeartbeat(String queryId) throws InterruptedException {

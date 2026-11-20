@@ -26,6 +26,7 @@ import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -1260,6 +1261,101 @@ public class RunningQueryAsyncLifecycleTest {
         ExecutorService executor = Executors.newFixedThreadPool(workers);
         executors.add(executor);
         return executor;
+    }
+
+    /**
+     * Async maxWork was checked after hasNext but not after getNext's separate wait. Publish the exhausted next/seek budget while that latter wait returns a
+     * row: output must match the control in which the same work is published before the next page starts. The queue gate allows the real producer to publish
+     * its counters before the request resumes; the test never mutates the live metric itself.
+     *
+     * @param seekBudget
+     *            whether seekCount rather than nextCount reaches maxWork
+     * @param publishBeforeRequest
+     *            whether to run the already-exhausted-budget control
+     */
+    @SuppressWarnings("unchecked")
+    @ParameterizedTest
+    @CsvSource({"false, false", "true, false", "false, true", "true, true"})
+    public void workBudgetPublishedDuringGetNextWaitStopsThePage(boolean seekBudget, boolean publishBeforeRequest) throws Exception {
+        CountDownLatch nextBlocked = new CountDownLatch(1);
+        CountDownLatch releaseNext = new CountDownLatch(1);
+        CountDownLatch pollBlocked = new CountDownLatch(1);
+        CountDownLatch releasePoll = new CountDownLatch(1);
+        AtomicInteger index = new AtomicInteger();
+        Iterator<Object> rows = new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+                return index.get() < 2;
+            }
+
+            @Override
+            public Object next() {
+                if (index.getAndIncrement() == 0) {
+                    return "a";
+                }
+                nextBlocked.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releaseNext, 5, TimeUnit.SECONDS), "Second iterator next was not released");
+                return "b";
+            }
+        };
+        MetricsTransformer transformer = new MetricsTransformer(0, 0) {
+            @Override
+            public Object transform(Object value) {
+                long work = "a".equals(value) ? 1 : 100;
+                setWorkCounts(seekBudget ? 0 : work, seekBudget ? work : 0);
+                return value;
+            }
+        };
+        RunningQuery query = query(executor(), Collections.<Object> singletonList("unused").iterator(), 1);
+        when(query.getLogic().getMaxWork()).thenReturn(100L);
+        when(query.getLogic().getTransformIterator(query.getSettings())).thenReturn(new TransformIterator<>(rows, transformer));
+        query.setClient(mock(AccumuloClient.class));
+        BlockingQueue<Object> queue = spy((BlockingQueue<Object>) ReflectionTestUtils.getField(query, "resultsThreadQueue"));
+        ReflectionTestUtils.setField(query, "resultsThreadQueue", queue);
+        AtomicInteger polls = new AtomicInteger();
+        doAnswer(invocation -> {
+            Object value = invocation.callRealMethod();
+            if (polls.incrementAndGet() == 2) {
+                pollBlocked.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releasePoll, 5, TimeUnit.SECONDS), "Second queue poll was not released");
+            }
+            return value;
+        }).when(queue).poll();
+        try {
+            assertEquals(Collections.singletonList("a"), query.next().getResults());
+            assertTrue(nextBlocked.await(2, TimeUnit.SECONDS), "Producer did not block in second next()");
+            Future<ResultsPage> second = null;
+            if (!publishBeforeRequest) {
+                second = executor().submit(query::next);
+                awaitResultWait(query, "getNext");
+            }
+            releaseNext.countDown();
+            if (!publishBeforeRequest) {
+                assertTrue(pollBlocked.await(2, TimeUnit.SECONDS), "Request did not reach its second queue poll");
+            }
+            Object generationLock = ReflectionTestUtils.getField(query, "running");
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+            long published;
+            do {
+                synchronized (generationLock) {
+                    published = query.getMetric().getNextCount() + query.getMetric().getSeekCount();
+                }
+                if (published >= 100) {
+                    break;
+                }
+                Thread.yield();
+            } while (System.nanoTime() < deadline);
+            assertEquals(100, published, "Producer did not publish the exhausted budget before the request resumed");
+            releasePoll.countDown();
+            ResultsPage result = publishBeforeRequest ? query.next() : second.get(2, TimeUnit.SECONDS);
+            assertEquals(ResultsPage.Status.NONE, result.getStatus(), "The exhausted budget must stop output regardless of publication timing");
+            assertTrue(result.getResults().isEmpty());
+            assertEquals(BaseQueryMetric.Lifecycle.MAXWORK, query.getMetric().getLifecycle());
+            assertEquals(1L, ReflectionTestUtils.getField(query, "numResults"), "The over-budget row must not be included in page accounting");
+        } finally {
+            releaseNext.countDown();
+            releasePoll.countDown();
+        }
     }
 
     private void assertWorkMetrics(RunningQuery query, long nextCount, long seekCount) {

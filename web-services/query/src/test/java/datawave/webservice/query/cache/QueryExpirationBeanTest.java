@@ -5,12 +5,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.Collections;
 import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -22,6 +22,8 @@ import datawave.microservice.query.config.QueryExpirationProperties;
 import datawave.microservice.querymetric.BaseQueryMetric;
 import datawave.webservice.query.exception.DatawaveErrorCode;
 import datawave.webservice.query.exception.QueryException;
+import datawave.webservice.query.limit.QueryHeartbeat;
+import datawave.webservice.query.limit.QueryHeartbeatCache;
 import datawave.webservice.query.limit.QueryLimiter;
 import datawave.webservice.query.metric.QueryMetricsBean;
 import datawave.webservice.query.runner.RunningQuery;
@@ -205,21 +207,20 @@ public class QueryExpirationBeanTest {
     public void testActiveQuerySynchronization() throws Exception {
         RunningQuery query = createNonIdleOrExpiredQuery();
 
-        // Return a set of active queries that contain the ID of the query above, and some extra ones.
+        // Exercise accounting state rather than require a particular bulk-removal API. Missing queries must be uncounted while the live query stays counted.
+        QueryHeartbeatCache heartbeats = new QueryHeartbeatCache();
+        QueryLimiter limiter = new QueryLimiter();
+        limiter.setHeartbeatCache(heartbeats);
         Set<String> queryIds = Set.of(query.getSettings().getId().toString(), "otherQuery1", "otherQuery2", "otherQuery3");
-        when(queryLimiter.getActiveQueries()).thenReturn(queryIds);
-
-        // Remove all idle/expired queries.
-        bean.removeIdleOrExpired();
-
-        // Verify the query is not removed.
-        verifyQueryNotRemoved(query);
-
-        // Verify that the query IDs not in the query cache are no longer counted towards query limits.
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<Set<String>> captor = ArgumentCaptor.forClass(Set.class);
-        verify(queryLimiter).stopCountingQueriesTowardsLimits(captor.capture());
-        assertThat(captor.getValue()).containsExactlyInAnyOrder("otherQuery1", "otherQuery2", "otherQuery3");
+        queryIds.forEach(id -> heartbeats.put(new QueryHeartbeat(id, Collections.emptyList())));
+        ReflectionTestUtils.setField(bean, "queryLimiter", limiter);
+        try {
+            bean.removeIdleOrExpired();
+            verifyQueryNotRemoved(query);
+            assertThat(heartbeats.getQueryIds()).containsExactly(query.getSettings().getId().toString());
+        } finally {
+            heartbeats.shutdown();
+        }
     }
 
     private RunningQuery createHungNextCallQuery() {

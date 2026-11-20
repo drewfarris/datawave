@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -66,6 +65,7 @@ import org.apache.commons.lang.time.DateUtils;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.impl.DefaultPooledObject;
+import org.apache.curator.framework.recipes.nodes.PersistentNode;
 import org.apache.log4j.Logger;
 import org.jboss.resteasy.mock.MockDispatcherFactory;
 import org.jboss.resteasy.mock.MockHttpRequest;
@@ -386,7 +386,8 @@ public class QueryExecutorBeanTest {
      * After another query borrowed that same client, the stale return released the other query's active lease and removed its tracking entry.
      *
      * Exercise reset/adminClose and real factory/pool methods with mocked clients. Hold initialization across close, reborrow the released client, then fail
-     * after acquiring a late resource. The other lease must remain active and the late resource must be reclaimed.
+     * after acquiring a late resource. The other lease must remain active and the late resource must be reclaimed. Close marks the execution terminal; cache
+     * eviction may wait for the reset's outstanding cleanup to finish.
      *
      * @param failInSetup
      *            whether setupQuery() rather than initialize() fails after close
@@ -436,7 +437,7 @@ public class QueryExecutorBeanTest {
             assertTrue(initializing.await(2, TimeUnit.SECONDS), "Reset did not enter initialization");
             assertSame(pooledClient, runningQuery.getClient());
             bean.adminClose(id);
-            assertNull(cache.get(id));
+            assertTrue(runningQuery.isMarkedForRemoval(), "Close must terminate the execution while reset still owns cleanup");
             assertNull(runningQuery.getClient());
             assertEquals(0, pool.getNumActive(), "Close did not return its installed client");
             otherOwner = pool.borrowObject(new HashMap<>());
@@ -447,6 +448,7 @@ public class QueryExecutorBeanTest {
             assertEquals(1, pool.getNumActive(), "Reset returned a client already reborrowed by another query");
             assertTrue(pool.connectorCameFromHere(otherOwner), "Reset removed the other query's lease tracking");
             assertFalse(resourcesOpen.get(), "The exceptional initializer leaked its late resources");
+            assertNull(cache.get(id), "Completed reset cleanup must release its cache owner");
         } finally {
             releaseInitializer.countDown();
             requests.shutdownNow();
@@ -833,7 +835,8 @@ public class QueryExecutorBeanTest {
     /**
      * Reset can fetch a live query before removal and retain a newly borrowed, caller-owned loan afterward. Hold either getClient's return or accounting, then
      * administratively close before setClient is invoked. Reusing the identical physical client must not make its old returned lease suppress cleanup of this
-     * new unused loan. Removal must also prevent the stale reset from opening resources after eviction.
+     * new unused loan. Removal must also prevent the stale reset from opening resources. Verify eviction after cleanup, allowing the cache to retain the
+     * admitted borrower's cleanup owner while reset is pending.
      *
      * @param duringAccounting
      *            whether to pause after borrow in accounting rather than before getClient returns
@@ -879,7 +882,7 @@ public class QueryExecutorBeanTest {
             assertNull(query.getClient(), "The reborrowed client must not yet be installed");
             assertEquals(1, pool.getNumActive());
             bean.adminClose(id);
-            assertNull(cache.get(id));
+            assertTrue(query.isMarkedForRemoval(), "Close must terminate the execution while reset still owns cleanup");
             releaseReset.countDown();
             boolean rejected = false;
             try {
@@ -892,6 +895,7 @@ public class QueryExecutorBeanTest {
             assertTrue(rejected, "A reset fetched before removal was allowed to reopen afterward");
             verify(logic).initialize(eq(client), eq(settings), any());
             assertNull(query.getClient());
+            assertNull(cache.get(id), "Completed unused-loan cleanup must release its cache owner");
         } finally {
             releaseReset.countDown();
             requests.shutdownNow();
@@ -1298,6 +1302,7 @@ public class QueryExecutorBeanTest {
      * Capturing the older heartbeat for close must still allow cleanup of a reset that starts counting a new execution on the same RunningQuery. Pause close
      * just before it marks removal, let reset borrow/count/install and block in initialize(), then complete close before initialization returns successfully.
      * That initializer cannot reopen the removed query; reset's final cleanup must stop the heartbeat it enrolled, even though no exception reaches reset.
+     * Removal is terminal immediately, while cache eviction can wait until the admitted reset completes cleanup.
      *
      * This controls the former ID-based cleanup behavior while the replacement-instance tests require identity-aware cleanup.
      */
@@ -1349,7 +1354,7 @@ public class QueryExecutorBeanTest {
                 assertNotNull(heartbeats.get(id), "Reset did not enroll its heartbeat");
                 releaseRemoval.countDown();
                 close.get(2, TimeUnit.SECONDS);
-                assertNull(cache.get(id));
+                assertTrue(query.isMarkedForRemoval(), "Close must terminate the execution while reset still owns cleanup");
                 assertEquals(0, pool.getNumActive());
                 releaseInitialization.countDown();
                 reset.get(2, TimeUnit.SECONDS);
@@ -1445,6 +1450,207 @@ public class QueryExecutorBeanTest {
             if (pool.connectorCameFromHere(client)) {
                 pool.returnObject(client);
             }
+        }
+    }
+
+    /**
+     * A reset can own a pool loan before setClient installs it. Closing the disconnected cached query during borrowing, limiter enrollment, or prediction
+     * previously evicted its only reachable cleanup owner. If the unused client's return then failed twice, later API close could not find the retained loan.
+     * Keep a real one-client pool, reject returns before they release that loan, and require API cleanup to recover once the factory becomes available.
+     * Successful-return cases establish that admission ownership ends without leaving a stale cache entry or an active loan. Interrupted limiter enrollment
+     * must follow the same ownership cleanup, since interruption can occur after borrowing but before installation.
+     *
+     * @param phase
+     *            where reset pauses before client installation
+     * @param failReturn
+     *            whether unused-client returns fail until reset finishes
+     */
+    @ParameterizedTest
+    @CsvSource({"borrow, true", "accounting, true", "prediction, true", "borrow, false", "accounting, false", "prediction, false",
+            "interruptedAccounting, true", "interruptedAccounting, false"})
+    @Timeout(15)
+    public void removalRetainsUninstalledResetLoanUntilReturnCompletes(String phase, boolean failReturn) throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        AccumuloClientPool pool = singleClientPool(client);
+        AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+        configureResetOwner(factory);
+        QueryImpl settings = createNewQuery();
+        settings.setOwner("owner");
+        QueryLogic<Object> logic = mock(QueryLogic.class);
+        RunningQuery query = queryForReset(pool.borrowObject(new HashMap<>()), settings, logic);
+        query.closeConnection(factory);
+        String id = settings.getId().toString();
+        cache.put(id, query);
+        CountDownLatch paused = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Runnable pause = () -> {
+            paused.countDown();
+            assertTrue(Uninterruptibles.awaitUninterruptibly(release, 5, TimeUnit.SECONDS), "Reset was not released");
+        };
+        if ("borrow".equals(phase)) {
+            doAnswer(invocation -> {
+                Object borrowed = invocation.callRealMethod();
+                pause.run();
+                return borrowed;
+            }).when(factory).getClient(any(), any(), any(), any(), any());
+        } else if ("accounting".equals(phase) || "interruptedAccounting".equals(phase)) {
+            when(logic.isQueryLimiterEnabled()).thenReturn(true);
+            when(queryLimiter.checkForLimits(any(), any(), any())).thenReturn(QueryLimiterResponse.hasNotMetLimit());
+            doAnswer(invocation -> {
+                pause.run();
+                if ("interruptedAccounting".equals(phase)) {
+                    throw new InterruptedException("Limiter enrollment interrupted before client installation");
+                }
+                return null;
+            }).when(queryLimiter).countQueryTowardsLimits(any(), any(), any(), any());
+        } else {
+            query.setPredictor(metric -> {
+                pause.run();
+                return Collections.emptySet();
+            });
+        }
+        AtomicBoolean rejectReturns = new AtomicBoolean(failReturn);
+        AtomicInteger failedReturns = new AtomicInteger();
+        doAnswer(invocation -> {
+            if (rejectReturns.get()) {
+                failedReturns.incrementAndGet();
+                throw new IOException("Unused client return failed before releasing its loan");
+            }
+            return invocation.callRealMethod();
+        }).when(factory).returnClient(client);
+        ExecutorService requests = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> reset = requests.submit(() -> bean.reset(id));
+            assertTrue(paused.await(2, TimeUnit.SECONDS), "Reset did not pause before client installation");
+            assertNull(query.getClient());
+            bean.adminClose(id);
+            assertEquals(1, pool.getNumActive(), "Close must not return a borrower-owned client");
+            release.countDown();
+            ExecutionException failure = assertThrows(ExecutionException.class, () -> reset.get(2, TimeUnit.SECONDS));
+            assertInstanceOf(DatawaveWebApplicationException.class, failure.getCause());
+            if (failReturn) {
+                assertEquals(2, failedReturns.get(), "Both failed-reset cleanup and its removal retry should retain the loan");
+                assertEquals(1, pool.getNumActive());
+                assertSame(client, query.getClient());
+                assertSame(query, cache.get(id), "The failed unused loan must remain reachable by API close");
+                rejectReturns.set(false);
+                bean.adminClose(id);
+            }
+            assertNull(cache.get(id));
+            assertNull(query.getClient());
+            assertEquals(0, pool.getNumActive());
+            assertFalse(pool.connectorCameFromHere(client));
+        } finally {
+            release.countDown();
+            requests.shutdownNow();
+            assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+            returnTrackedClients(pool, client);
+            pool.close();
+            logic.close();
+        }
+    }
+
+    /**
+     * Reconciliation read an old query's cancellation and later stopped accounting by query ID. API cancel removes that query, and reset reloads a separate
+     * persisted definition and starts a replacement with the same ID. Pause after the old cancellation is read, reset through the real API, then finish that
+     * stale inspection. The replacement must keep both its cached heartbeat and its active limiter node.
+     */
+    @SuppressWarnings("unchecked")
+    @Test
+    @Timeout(15)
+    public void reconciliationPreservesHeartbeatEnrolledByResetAfterCancellation() throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        AccumuloClientPool pool = singleClientPool(client);
+        AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+        configureResetOwner(factory);
+        QueryImpl settings = createNewQuery();
+        settings.setOwner("owner");
+        String id = settings.getId().toString();
+        QueryLogic<Object> logic = mock(QueryLogic.class);
+        when(logic.isQueryLimiterEnabled()).thenReturn(true);
+        DatawaveUser user = new DatawaveUser(SubjectIssuerDNPair.of(settings.getUserDN(), "CN=issuer"), DatawaveUser.UserType.USER,
+                        Arrays.asList("PRIVATE", "PUBLIC"), null, null, 0L);
+        DatawavePrincipal principal = new DatawavePrincipal(Collections.singletonList(user));
+        settings.setOwner(principal.getShortName());
+        when(ctx.getCallerPrincipal()).thenReturn(principal);
+        RunningQuery query = spy(queryForReset(pool.borrowObject(new HashMap<>()), settings, logic));
+        cache.put(id, query);
+        QueryImpl persisted = createNewQuery();
+        persisted.setId(settings.getId());
+        persisted.setOwner(principal.getShortName());
+        QueryLogic<Object> replacementLogic = mock(QueryLogic.class);
+        queryForReset(null, persisted, replacementLogic);
+        when(replacementLogic.isQueryLimiterEnabled()).thenReturn(true);
+        when(replacementLogic.getConnectionPriority()).thenReturn(AccumuloConnectionFactory.Priority.NORMAL);
+        when(persister.findById(id)).thenReturn(Collections.singletonList(persisted));
+        doReturn(replacementLogic).when(queryLogicFactory).getQueryLogic(persisted.getQueryLogicName(), principal);
+        QueryHeartbeatCache heartbeats = new QueryHeartbeatCache();
+        heartbeats.put(new QueryHeartbeat(id, Collections.emptyList()));
+        QueryLimiter limiter = spy(new QueryLimiter());
+        limiter.setHeartbeatCache(heartbeats);
+        doReturn(QueryLimiterResponse.hasNotMetLimit()).when(limiter).checkForLimits(any(), any(), any());
+        AtomicBoolean newNodeClosed = new AtomicBoolean();
+        PersistentNode node = mock(PersistentNode.class);
+        when(node.getActualPath()).thenAnswer(invocation -> newNodeClosed.get() ? null : "/active/reset");
+        doAnswer(invocation -> {
+            newNodeClosed.set(true);
+            return null;
+        }).when(node).close();
+        doAnswer(invocation -> {
+            heartbeats.put(new QueryHeartbeat(id, Collections.singletonList(node)));
+            return null;
+        }).when(limiter).countQueryTowardsLimits(any(), any(), any(), any());
+        ReflectionTestUtils.setField(bean, "queryLimiter", limiter);
+        QueryExpirationBean expiration = new QueryExpirationBean();
+        ReflectionTestUtils.setField(expiration, "queryCache", cache);
+        ReflectionTestUtils.setField(expiration, "queryLimiter", limiter);
+        CountDownLatch inspecting = new CountDownLatch(1);
+        CountDownLatch releaseFinished = new CountDownLatch(1);
+        CountDownLatch canceledSnapshot = new CountDownLatch(1);
+        CountDownLatch releaseCanceled = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            inspecting.countDown();
+            assertTrue(Uninterruptibles.awaitUninterruptibly(releaseFinished, 5, TimeUnit.SECONDS), "Finished inspection was not released");
+            return invocation.callRealMethod();
+        }).when(query).isFinished();
+        doAnswer(invocation -> {
+            Object canceled = invocation.callRealMethod();
+            canceledSnapshot.countDown();
+            assertTrue(Uninterruptibles.awaitUninterruptibly(releaseCanceled, 5, TimeUnit.SECONDS), "Canceled snapshot was not released");
+            return canceled;
+        }).when(query).isCanceled();
+        ExecutorService cleaner = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> reconciliation = cleaner.submit(() -> ReflectionTestUtils.invokeMethod(expiration, "synchronizeActiveQueries"));
+            assertTrue(inspecting.await(2, TimeUnit.SECONDS), "Reconciliation did not capture the active query ID");
+            bean.adminCancel(id);
+            releaseFinished.countDown();
+            assertTrue(canceledSnapshot.await(2, TimeUnit.SECONDS), "Reconciliation did not snapshot cancellation");
+            bean.reset(id);
+            RunningQuery replacement = cache.get(id);
+            assertTrue(replacement != null && replacement != query, "Reset did not reload a separate query object");
+            QueryHeartbeat resetHeartbeat = heartbeats.get(id);
+            assertTrue(resetHeartbeat != null, "Reset did not enroll a new heartbeat");
+            releaseCanceled.countDown();
+            reconciliation.get(2, TimeUnit.SECONDS);
+            assertSame(replacement, cache.get(id));
+            assertFalse(replacement.isCanceled());
+            assertSame(resetHeartbeat, heartbeats.get(id), "Stale cancellation must not uncount the replacement execution");
+            assertFalse(newNodeClosed.get(), "The reset execution's limiter node must remain active");
+            assertEquals(1, pool.getNumActive());
+        } finally {
+            releaseFinished.countDown();
+            releaseCanceled.countDown();
+            cleaner.shutdownNow();
+            assertTrue(cleaner.awaitTermination(3, TimeUnit.SECONDS), "Reconciliation did not finish");
+            RunningQuery replacement = cache.get(id);
+            if (replacement != null && replacement != query) {
+                replacement.closeConnection(factory);
+            }
+            query.closeConnection(factory);
+            returnTrackedClients(pool, client);
+            pool.close();
+            heartbeats.shutdown();
         }
     }
 
