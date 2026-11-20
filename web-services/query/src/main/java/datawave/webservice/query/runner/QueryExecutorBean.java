@@ -1305,6 +1305,8 @@ public class QueryExecutorBean implements QueryExecutor {
                 throw new QueryException(DatawaveErrorCode.QUERY_LOCKED_ERROR);
             locked = true;
 
+            query.checkForRemoval();
+
             // Check if submitting a new query would exceed any configured concurrent query limits
             Query settings = query.getSettings();
             checkForQueryLimits(query.getLogic(), response, settings.getUserDN(), settings.getSystemFrom(), settings.getQueryLogicName());
@@ -1356,6 +1358,7 @@ public class QueryExecutorBean implements QueryExecutor {
 
             // Allocate the connection for this query so we are ready to go when
             // they call next.
+            query.checkForRemoval();
             priority = query.getConnectionPriority();
             Map<String,String> trackingMap = connectionFactory.getTrackingMap(Thread.currentThread().getStackTrace());
             query.getSettings().populateTrackingMap(trackingMap);
@@ -1368,6 +1371,7 @@ public class QueryExecutorBean implements QueryExecutor {
             }
 
             // Consider this query to be active when determining query limits.
+            query.checkForRemoval();
             markQueryAsActive(query.getLogic(), id, settings.getUserDN(), settings.getSystemFrom(), settings.getQueryLogicName());
 
             initializationStarted = true;
@@ -1407,6 +1411,17 @@ public class QueryExecutorBean implements QueryExecutor {
             int statusCode = qe.getBottomQueryException().getStatusCode();
             throw new DatawaveWebApplicationException(qe, response, statusCode);
         } finally {
+            if (query != null && query.isMarkedForRemoval()) {
+                // A concurrent API close may have left a return owned by this reset. Retry its retained loan before evicting the cleanup owner.
+                if (query.getClient() != null) {
+                    try {
+                        query.closeConnection(connectionFactory);
+                    } catch (Exception e) {
+                        log.error("Error completing removal after reset", e);
+                    }
+                }
+                removeAfterClientCleanup(query);
+            }
             // Only release the lock if this request acquired it; otherwise we would release another request's lock.
             if (locked) {
                 queryCache.unlock(id);
@@ -2168,7 +2183,7 @@ public class QueryExecutorBean implements QueryExecutor {
             // So if the connection is null here, then either the query wasn't in the cache
             // at all, or it was but only because of a call to list. In either case, it's
             // an error.
-            if (null == query || null == query.getClient()) {
+            if (null == query || null == query.getClient() || query.isMarkedForRemoval()) {
                 // If the query just wasn't in the cache, then check the persister to see if the
                 // ID exists at all. If it doesn't, then we need to return a 404 rather than 412
                 // status code.
@@ -2474,6 +2489,7 @@ public class QueryExecutorBean implements QueryExecutor {
 
         log.debug("Closing " + queryId);
 
+        query.markForRemoval();
         try {
             query.closeConnection(connectionFactory);
         } catch (Exception e) {
@@ -2482,10 +2498,16 @@ public class QueryExecutorBean implements QueryExecutor {
 
         markQueryAsInactive(query.getLogic(), queryId);
 
-        queryCache.remove(queryId);
+        removeAfterClientCleanup(query);
 
         log.debug("Closed " + queryId);
 
+    }
+
+    private void removeAfterClientCleanup(RunningQuery query) {
+        if (!query.hasOutstandingClientLease()) {
+            queryCache.remove(query.getSettings().getId().toString(), query);
+        }
     }
 
     /**

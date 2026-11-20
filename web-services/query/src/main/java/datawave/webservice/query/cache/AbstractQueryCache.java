@@ -66,6 +66,19 @@ public abstract class AbstractQueryCache<T extends AbstractRunningQuery> impleme
     }
 
     /**
+     * Remove only the instance whose cleanup completed. A delayed closer must not evict a replacement cached under the same identifier.
+     *
+     * @param id
+     *            the query identifier
+     * @param query
+     *            the expected cached instance
+     * @return whether that instance was removed
+     */
+    public boolean remove(String id, T query) {
+        return cache.asMap().remove(id, query);
+    }
+
+    /**
      * Removes all entries from the cache.
      */
     public void clear() {

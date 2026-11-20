@@ -146,6 +146,7 @@ public class QueryExpirationBean {
                 }
 
                 // Cancel the query if it is considered active.
+                query.markForRemoval();
                 if (query.hasActiveCall()) {
                     query.cancel();
                 }
@@ -168,12 +169,12 @@ public class QueryExpirationBean {
                     }
                 }
 
-                // Remove the query from the query cache.
-                queryCache.remove(queryId);
-
-                count++;
-                if (log.isDebugEnabled()) {
-                    log.debug("Entry evicted, connection returned.");
+                // Keep a pending or failed return reachable for the next cleanup pass.
+                if (!query.hasOutstandingClientLease() && queryCache.remove(queryId, query)) {
+                    count++;
+                    if (log.isDebugEnabled()) {
+                        log.debug("Entry evicted, connection returned.");
+                    }
                 }
             }
         }

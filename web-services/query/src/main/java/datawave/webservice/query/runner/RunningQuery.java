@@ -78,6 +78,10 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
     // Guarded by running. A pooled client can be reused, so ownership belongs to an initialization attempt, not to client identity alone.
     private transient ClientLease clientLease;
     private transient ClientLease initializationClientLease;
+    private transient ClientLease lastAcceptedClientLease;
+    private int pendingClientReturns;
+    // Administrative removal is terminal for this cached object, including the interval before cache eviction.
+    private volatile boolean removalRequested;
 
     private static class ClientLease {
         private final AccumuloClient client;
@@ -248,11 +252,12 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             applyPrediction(null);
             synchronized (running) {
                 // Reject before accepting the pooled client: the caller still owns it and can return it on failure.
-                if (generation != resultsThreadGeneration.get() || canceled) {
+                if (generation != resultsThreadGeneration.get() || canceled || removalRequested) {
                     throw new QueryException(DatawaveErrorCode.QUERY_CANCELED, "Initialization was terminated before its client was installed");
                 }
                 this.client = client;
                 clientLease = initialization;
+                lastAcceptedClientLease = initialization;
             }
             if (client instanceof WrappedAccumuloClient && this.logic.getClientConfig() != null) {
                 ((WrappedAccumuloClient) client).updateClientConfig(this.logic.getClientConfig());
@@ -286,7 +291,7 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             testForUncaughtException(0);
             // TODO: applyPrediction("Plan");
             synchronized (running) {
-                if (generation == resultsThreadGeneration.get() && !canceled) {
+                if (generation == resultsThreadGeneration.get() && !canceled && !removalRequested) {
                     resultsThreadStopped = false;
                     return;
                 }
@@ -349,14 +354,15 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
 
     private boolean isCurrentInitialization(long generation) {
         synchronized (running) {
-            return generation == resultsThreadGeneration.get() && !canceled;
+            return generation == resultsThreadGeneration.get() && !canceled && !removalRequested;
         }
     }
 
-    private long resetResultsThreadState() {
+    private long resetResultsThreadState() throws QueryException {
         Future<Object> resultsFuture;
         long generation;
         synchronized (running) {
+            checkForRemoval();
             // Capture this reset's generation and clear state in the same transition that stops its old producer.
             // Cancellation callbacks run later, so a concurrent close/cancel cannot become this reset's token.
             resultsFuture = stopResultsThreadState();
@@ -387,6 +393,33 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             forcedReturn.set(false);
         }
         return generation;
+    }
+
+    public void markForRemoval() {
+        synchronized (running) {
+            removalRequested = true;
+        }
+    }
+
+    public boolean isMarkedForRemoval() {
+        return removalRequested;
+    }
+
+    public void checkForRemoval() throws QueryException {
+        if (removalRequested) {
+            throw new QueryException(DatawaveErrorCode.QUERY_CANCELED, "Query is being closed");
+        }
+    }
+
+    /**
+     * A detached client still belongs to its closer until its return completes. Keep that cleanup owner cached if the return is pending or has failed.
+     *
+     * @return whether this query still owns a client or a pending client return
+     */
+    public boolean hasOutstandingClientLease() {
+        synchronized (running) {
+            return client != null || pendingClientReturns > 0;
+        }
     }
 
     private void startResultsThread() {
@@ -614,7 +647,7 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                 if (forcedReturn.get() && (available == gotNext || available.get() == 0)) {
                     throw new TimeoutException("Query page return was forced");
                 }
-                if (generation != resultsThreadGeneration.get() || finished || canceled) {
+                if (generation != resultsThreadGeneration.get() || finished || canceled || removalRequested) {
                     return false;
                 }
                 if (available.get() > 0) {
@@ -1128,15 +1161,17 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             iterator = iter;
             closingClient = client;
             closingLease = clientLease;
+            if (closingClient != null) {
+                pendingClientReturns++;
+            }
             if (closingLease != null) {
                 closingLease.returnClaimed = true;
             }
             client = null;
             clientLease = null;
         }
-        cancelResultsFuture(resultsFuture);
-
         try {
+            cancelResultsFuture(resultsFuture);
             if (iterator != null && iterator.getTransformer() instanceof WritesResultCardinalities) {
                 ((WritesResultCardinalities) iterator.getTransformer()).writeResultCardinalities();
             }
@@ -1154,6 +1189,7 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                     }
                 }
             }
+            closeLogic();
         } catch (Exception e) {
             synchronized (running) {
                 // A failed return did not transfer this lease. Its initializer may still need to claim it after cancellation or another attempt.
@@ -1161,15 +1197,21 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
                     closingLease.returnClaimed = false;
                 }
                 // Producer termination does not replace client ownership. Only the same initialization can recover its installed client.
-                if (initializationClientLease == closingLease && client == null && clientLease == null) {
+                // Rejected removal-time attempts own unused loans but cannot supersede the last accepted lease's cleanup.
+                if ((initializationClientLease == closingLease || (removalRequested && lastAcceptedClientLease == closingLease)) && client == null
+                                && clientLease == null) {
                     client = closingClient;
                     clientLease = closingLease;
                 }
             }
             throw e;
+        } finally {
+            if (closingClient != null) {
+                synchronized (running) {
+                    pendingClientReturns--;
+                }
+            }
         }
-
-        closeLogic();
     }
 
     private void closeLogic() {
