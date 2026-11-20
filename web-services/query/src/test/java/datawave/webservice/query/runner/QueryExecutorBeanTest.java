@@ -1654,6 +1654,518 @@ public class QueryExecutorBeanTest {
         }
     }
 
+    /**
+     * Creation kept a local client and an independent temporary-cache reference. Cancel/close/expiration could return that loan during initialization; a late
+     * failure then returned another query's reborrowed loan, while late success published a query pointing at it. Hold construction or initialization, retire
+     * through real cleanup APIs, and reborrow from a one-client pool. The creator must reject publication and must never release the other borrower's loan.
+     *
+     * @param cleanup
+     *            the cleanup path that overtakes creation
+     * @param failInitialization
+     *            whether initialization throws after cleanup
+     * @param duringConstruction
+     *            whether definition pre-initialization pauses before the RunningQuery constructor returns
+     */
+    @ParameterizedTest
+    @CsvSource({"adminCancel, false, false", "adminCancel, true, false", "adminClose, false, false", "adminClose, true, false", "cancel, false, false",
+            "cancel, true, false", "close, false, false", "close, true, false", "expiration, false, false", "expiration, true, false",
+            "adminCancel, false, true", "adminClose, false, true"})
+    @Timeout(15)
+    public void creationCleanupDoesNotReturnAReborrowedLoan(String cleanup, boolean failInitialization, boolean duringConstruction) throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            QueryLogic<Object> logic = logicForCreation(settings);
+            String id = settings.getId().toString();
+            CountDownLatch initializing = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            AtomicBoolean resourcesOpen = new AtomicBoolean();
+            doAnswer(invocation -> {
+                resourcesOpen.set(false);
+                return null;
+            }).when(logic).close();
+            Answer<Object> pause = invocation -> {
+                initializing.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(release, 5, TimeUnit.SECONDS), "Creation was not released");
+                resourcesOpen.set(true);
+                if (failInitialization) {
+                    throw new IOException("Creation failed after its client was returned and reborrowed");
+                }
+                return mock(GenericQueryConfiguration.class);
+            };
+            if (duringConstruction) {
+                doAnswer(invocation -> {
+                    pause.answer(invocation);
+                    return null;
+                }).when(logic).preInitialize(any(), any());
+            } else {
+                when(logic.initialize(any(), any(), any())).thenAnswer(pause);
+            }
+            ExecutorService requests = Executors.newSingleThreadExecutor();
+            MultivaluedMap<String,String> parameters = createNewQueryParameterMap();
+            try {
+                Future<?> create = requests.submit(() -> bean.createQuery(settings.getQueryLogicName(), parameters));
+                assertTrue(initializing.await(2, TimeUnit.SECONDS), "Creation did not reach its initialization gate");
+                assertEquals(1, pool.getNumActive());
+                cleanupCreation(cleanup, id, factory);
+                assertEquals(0, pool.getNumActive(), "Cleanup did not return the creator's loan");
+                AccumuloClient otherOwner = pool.borrowObject(new HashMap<>());
+                assertSame(client, otherOwner);
+                release.countDown();
+                ExecutionException failure = assertThrows(ExecutionException.class, () -> create.get(2, TimeUnit.SECONDS),
+                                "Retired creation must not publish an execution using an already returned client");
+                assertInstanceOf(DatawaveWebApplicationException.class, failure.getCause());
+                assertEquals(1, pool.getNumActive(), "Late creation cleanup returned another query's active loan");
+                assertTrue(pool.connectorCameFromHere(otherOwner), "Late cleanup removed the other borrower's tracking");
+                assertNull(cache.get(id));
+                assertTrue(qlCache.snapshot().isEmpty(), "Completed creation cleanup retained its temporary owner");
+                assertFalse(resourcesOpen.get(), "Resources acquired by the late initializer were not closed");
+            } finally {
+                release.countDown();
+                requests.shutdownNow();
+                assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+                returnTrackedClients(pool, client);
+                logic.close();
+            }
+        }
+    }
+
+    /**
+     * Normal creation is the ownership-transfer control: an accepted execution keeps exactly one tracked loan, releases its temporary initialization owner, and
+     * returns that loan exactly once when closed. This exercises the same real creation path as the cancellation schedules.
+     */
+    @Test
+    public void normalCreationTransfersItsLoanToTheCachedExecution() throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            logicForCreation(settings);
+            String id = settings.getId().toString();
+            bean.createQuery(settings.getQueryLogicName(), createNewQueryParameterMap());
+            assertSame(client, cache.get(id).getClient());
+            assertEquals(1, pool.getNumActive());
+            assertTrue(pool.connectorCameFromHere(client));
+            assertTrue(qlCache.snapshot().isEmpty());
+            bean.adminClose(id);
+            assertEquals(0, pool.getNumActive());
+            assertFalse(pool.connectorCameFromHere(client));
+            assertNull(cache.get(id));
+            verify(factory).returnClient(client);
+        }
+    }
+
+    /**
+     * A return failure must not discard creation's cleanup owner. Reject every return until the retired creator has finished, then recover the factory and
+     * close through the API again. The old late-failure path retried the return but dropped the only temporary owner when that retry also failed.
+     */
+    @Test
+    @Timeout(15)
+    public void failedCreationReturnRemainsReachableAfterTheCreatorFinishes() throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            QueryLogic<Object> logic = logicForCreation(settings);
+            String id = settings.getId().toString();
+            CountDownLatch initializing = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            when(logic.initialize(any(), any(), any())).thenAnswer(invocation -> {
+                initializing.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(release, 5, TimeUnit.SECONDS));
+                throw new IOException("Retired initializer failed while its unused return remained unavailable");
+            });
+            AtomicBoolean reject = new AtomicBoolean(true);
+            doAnswer(invocation -> {
+                if (reject.get()) {
+                    throw new IOException("Return rejected before releasing the creator's loan");
+                }
+                return invocation.callRealMethod();
+            }).when(factory).returnClient(client);
+            ExecutorService requests = Executors.newSingleThreadExecutor();
+            MultivaluedMap<String,String> parameters = createNewQueryParameterMap();
+            try {
+                Future<?> create = requests.submit(() -> bean.createQuery(settings.getQueryLogicName(), parameters));
+                assertTrue(initializing.await(2, TimeUnit.SECONDS));
+                assertThrows(DatawaveWebApplicationException.class, () -> bean.adminCancel(id));
+                release.countDown();
+                ExecutionException failure = assertThrows(ExecutionException.class, () -> create.get(2, TimeUnit.SECONDS));
+                assertInstanceOf(DatawaveWebApplicationException.class, failure.getCause());
+                assertEquals(1, pool.getNumActive());
+                assertTrue(pool.connectorCameFromHere(client));
+                assertTrue(qlCache.snapshot().containsKey(id), "The failed creation loan lost its reachable cleanup owner");
+                reject.set(false);
+                bean.adminClose(id);
+                assertEquals(0, pool.getNumActive());
+                assertFalse(pool.connectorCameFromHere(client));
+                assertTrue(qlCache.snapshot().isEmpty());
+                assertNull(cache.get(id));
+            } finally {
+                release.countDown();
+                requests.shutdownNow();
+                assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+                returnTrackedClients(pool, client);
+                logic.close();
+            }
+        }
+    }
+
+    /**
+     * Reset enrolls accounting before setClient clears the old execution's finished flag. Reconciliation used that old flag to remove the fresh heartbeat, even
+     * though it captured the right instance. Finish a real synchronous page using a null transformed row, pause reset after new enrollment, then require the
+     * admitted reset to keep its heartbeat and actual node. Reconciliation after completed reset is the existing healthy-execution control.
+     *
+     * @param reconcileAfterReset
+     *            whether to reconcile only after initialization completes
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @Timeout(15)
+    public void resetAccountingSurvivesReconciliationDuringEnrollment(boolean reconcileAfterReset) throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            settings.setOwner("owner");
+            String id = settings.getId().toString();
+            QueryLogic<Object> logic = mock(QueryLogic.class);
+            when(logic.getResultLimit(any())).thenReturn(-1L);
+            when(logic.getMaxResults()).thenReturn(-1L);
+            when(logic.getMaxWork()).thenReturn(-1L);
+            when(logic.getMaxPageSize()).thenReturn(100);
+            when(logic.isUseSynchronousRunningQuery()).thenReturn(true);
+            RunningQuery query = queryForReset(pool.borrowObject(new HashMap<>()), settings, logic);
+            when(logic.getTransformIterator(settings)).thenReturn(new TransformIterator<>(Arrays.<Object> asList("old-row", null).iterator(), value -> value));
+            query.setClient(client);
+            assertEquals(Collections.singletonList("old-row"), query.next().getResults());
+            assertTrue(query.isFinished());
+            when(logic.getTransformIterator(settings)).thenReturn(new TransformIterator<>(Collections.singletonList("new-row").iterator(), value -> value));
+            when(logic.isQueryLimiterEnabled()).thenReturn(true);
+            cache.put(id, query);
+            QueryHeartbeatCache heartbeats = new QueryHeartbeatCache();
+            QueryLimiter limiter = spy(new QueryLimiter());
+            limiter.setHeartbeatCache(heartbeats);
+            doReturn(QueryLimiterResponse.hasNotMetLimit()).when(limiter).checkForLimits(any(), any(), any());
+            AtomicBoolean nodeClosed = new AtomicBoolean();
+            QueryHeartbeat heartbeat = heartbeatWithNode(id, nodeClosed);
+            CountDownLatch counted = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            doAnswer(invocation -> {
+                heartbeats.put(heartbeat);
+                counted.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(release, 5, TimeUnit.SECONDS));
+                return null;
+            }).when(limiter).countQueryTowardsLimits(any(), any(), any(), any());
+            ReflectionTestUtils.setField(bean, "queryLimiter", limiter);
+            QueryExpirationBean expiration = accountingReconciliation(limiter);
+            ExecutorService requests = Executors.newSingleThreadExecutor();
+            try {
+                Future<?> reset = requests.submit(() -> bean.reset(id));
+                assertTrue(counted.await(2, TimeUnit.SECONDS));
+                assertTrue(query.isFinished(), "The test must observe the old terminal flags before client installation");
+                if (reconcileAfterReset) {
+                    release.countDown();
+                    reset.get(2, TimeUnit.SECONDS);
+                }
+                ReflectionTestUtils.invokeMethod(expiration, "synchronizeActiveQueries");
+                release.countDown();
+                reset.get(2, TimeUnit.SECONDS);
+                assertFalse(query.isFinished());
+                assertEquals(Collections.singletonList("new-row"), query.next().getResults());
+                assertSame(heartbeat, heartbeats.get(id), "Reconciliation stopped the new execution's startup accounting");
+                assertFalse(nodeClosed.get());
+                assertEquals(1, pool.getNumActive());
+            } finally {
+                release.countDown();
+                requests.shutdownNow();
+                assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+                query.closeConnection(factory);
+                heartbeats.shutdown();
+            }
+        }
+    }
+
+    /**
+     * A creating query has accounting but is not yet in the running cache. Reconciliation must recognize its temporary initialization owner instead of treating
+     * its new heartbeat as orphaned. Hold initialization, reconcile while the running-cache entry is absent, then complete normal creation.
+     */
+    @Test
+    @Timeout(15)
+    public void creationAccountingSurvivesReconciliationBeforePublication() throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            QueryLogic<Object> logic = logicForCreation(settings);
+            String id = settings.getId().toString();
+            when(logic.isQueryLimiterEnabled()).thenReturn(true);
+            QueryHeartbeatCache heartbeats = new QueryHeartbeatCache();
+            QueryLimiter limiter = spy(new QueryLimiter());
+            limiter.setHeartbeatCache(heartbeats);
+            doReturn(QueryLimiterResponse.hasNotMetLimit()).when(limiter).checkForLimits(any(), any(), any());
+            AtomicBoolean nodeClosed = new AtomicBoolean();
+            QueryHeartbeat heartbeat = heartbeatWithNode(id, nodeClosed);
+            doAnswer(invocation -> {
+                heartbeats.put(heartbeat);
+                return null;
+            }).when(limiter).countQueryTowardsLimits(any(), any(), any(), any());
+            ReflectionTestUtils.setField(bean, "queryLimiter", limiter);
+            CountDownLatch initializing = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            when(logic.initialize(any(), any(), any())).thenAnswer(invocation -> {
+                initializing.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(release, 5, TimeUnit.SECONDS));
+                return mock(GenericQueryConfiguration.class);
+            });
+            ExecutorService requests = Executors.newSingleThreadExecutor();
+            MultivaluedMap<String,String> parameters = createNewQueryParameterMap();
+            try {
+                Future<?> create = requests.submit(() -> bean.createQuery(settings.getQueryLogicName(), parameters));
+                assertTrue(initializing.await(2, TimeUnit.SECONDS));
+                assertNull(cache.get(id));
+                ReflectionTestUtils.invokeMethod(accountingReconciliation(limiter), "synchronizeActiveQueries");
+                release.countDown();
+                create.get(2, TimeUnit.SECONDS);
+                assertSame(heartbeat, heartbeats.get(id), "The creating query lost accounting before it could be published");
+                assertFalse(nodeClosed.get());
+                bean.adminClose(id);
+            } finally {
+                release.countDown();
+                requests.shutdownNow();
+                assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+                returnTrackedClients(pool, client);
+                logic.close();
+                heartbeats.shutdown();
+            }
+        }
+    }
+
+    /**
+     * A failed factory return jumped over logic.close, leaving scanner/planner resources open on an already terminal query. Keep the failed loan reachable, but
+     * close the logic immediately and retry only the loan once the factory recovers. Successful return is the matching cleanup control.
+     *
+     * @param failReturn
+     *            whether the first return fails before releasing the loan
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void failedClientReturnStillClosesLogicResources(boolean failReturn) throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            String id = settings.getId().toString();
+            QueryLogic<Object> logic = mock(QueryLogic.class);
+            RunningQuery query = queryForReset(pool.borrowObject(new HashMap<>()), settings, logic);
+            cache.put(id, query);
+            AtomicBoolean resourcesOpen = new AtomicBoolean(true);
+            doAnswer(invocation -> {
+                resourcesOpen.set(false);
+                return null;
+            }).when(logic).close();
+            AtomicBoolean reject = new AtomicBoolean(failReturn);
+            doAnswer(invocation -> {
+                if (reject.get()) {
+                    throw new IOException("Client return failed before release");
+                }
+                return invocation.callRealMethod();
+            }).when(factory).returnClient(client);
+            try {
+                bean.adminClose(id);
+                assertFalse(resourcesOpen.get(), "Factory failure bypassed query-logic cleanup");
+                assertEquals(failReturn ? 1 : 0, pool.getNumActive());
+                assertSame(failReturn ? query : null, cache.get(id));
+                if (failReturn) {
+                    assertSame(client, query.getClient());
+                    reject.set(false);
+                    bean.adminClose(id);
+                    assertEquals(0, pool.getNumActive());
+                    assertNull(cache.get(id));
+                }
+            } finally {
+                returnTrackedClients(pool, client);
+                logic.close();
+            }
+        }
+    }
+
+    /**
+     * Cleanup must find a creation before getClient returns its loan to the caller. Pause a real borrow after allocation but before assignment, close through
+     * the API, then complete the borrow. The creator must return that unused loan instead of constructing and publishing an execution after cancellation.
+     *
+     * @param administrativeCancel
+     *            use administrative cancellation rather than administrative close
+     */
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @Timeout(15)
+    public void creationCanceledDuringBorrowReturnsItsUnusedLoan(boolean administrativeCancel) throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            QueryLogic<Object> logic = logicForCreation(settings);
+            String id = settings.getId().toString();
+            CountDownLatch borrowed = new CountDownLatch(1);
+            CountDownLatch release = new CountDownLatch(1);
+            doAnswer(invocation -> {
+                Object loan = invocation.callRealMethod();
+                borrowed.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(release, 5, TimeUnit.SECONDS));
+                return loan;
+            }).when(factory).getClient(any(), any(), any(), any(), any());
+            ExecutorService requests = Executors.newSingleThreadExecutor();
+            MultivaluedMap<String,String> parameters = createNewQueryParameterMap();
+            try {
+                Future<?> create = requests.submit(() -> bean.createQuery(settings.getQueryLogicName(), parameters));
+                assertTrue(borrowed.await(2, TimeUnit.SECONDS));
+                assertEquals(1, pool.getNumActive());
+                assertDoesNotThrow(() -> cleanupCreation(administrativeCancel ? "adminCancel" : "adminClose", id, factory),
+                                "Cleanup could not find the in-flight creation before borrowing completed");
+                assertEquals(1, pool.getNumActive(), "Cleanup must not return a loan still owned by the borrowing call");
+                release.countDown();
+                ExecutionException failure = assertThrows(ExecutionException.class, () -> create.get(2, TimeUnit.SECONDS));
+                assertInstanceOf(DatawaveWebApplicationException.class, failure.getCause());
+                assertEquals(0, pool.getNumActive());
+                assertFalse(pool.connectorCameFromHere(client));
+                assertNull(cache.get(id));
+                assertTrue(qlCache.snapshot().isEmpty());
+                verify(factory).returnClient(client);
+            } finally {
+                release.countDown();
+                requests.shutdownNow();
+                assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+                returnTrackedClients(pool, client);
+                logic.close();
+            }
+        }
+    }
+
+    /**
+     * A creator can finish while administrative cancellation still owns a pending factory return. Finishing must neither claim a second return nor evict the
+     * temporary owner before the first return completes. Hold the real factory boundary, fail the late initializer, then release that return and require the
+     * cleanup owner and tracked loan to retire together.
+     */
+    @Test
+    @Timeout(15)
+    public void creationReturnPendingRetainsItsOwnerAfterTheCreatorFinishes() throws Exception {
+        AccumuloClient client = mock(AccumuloClient.class);
+        try (AccumuloClientPool pool = singleClientPool(client)) {
+            AccumuloConnectionFactoryImpl factory = factoryWithPool(pool);
+            configureResetOwner(factory);
+            QueryImpl settings = createNewQuery();
+            QueryLogic<Object> logic = logicForCreation(settings);
+            String id = settings.getId().toString();
+            CountDownLatch initializing = new CountDownLatch(1);
+            CountDownLatch releaseInitialization = new CountDownLatch(1);
+            CountDownLatch returning = new CountDownLatch(1);
+            CountDownLatch releaseReturn = new CountDownLatch(1);
+            when(logic.initialize(any(), any(), any())).thenAnswer(invocation -> {
+                initializing.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releaseInitialization, 5, TimeUnit.SECONDS));
+                throw new IOException("Initializer failed while its earlier cancellation return was still pending");
+            });
+            AtomicBoolean firstReturn = new AtomicBoolean(true);
+            doAnswer(invocation -> {
+                if (firstReturn.compareAndSet(true, false)) {
+                    returning.countDown();
+                    assertTrue(Uninterruptibles.awaitUninterruptibly(releaseReturn, 5, TimeUnit.SECONDS));
+                }
+                return invocation.callRealMethod();
+            }).when(factory).returnClient(client);
+            ExecutorService requests = Executors.newFixedThreadPool(2);
+            MultivaluedMap<String,String> parameters = createNewQueryParameterMap();
+            try {
+                Future<?> create = requests.submit(() -> bean.createQuery(settings.getQueryLogicName(), parameters));
+                assertTrue(initializing.await(2, TimeUnit.SECONDS));
+                Future<?> cancel = requests.submit(() -> bean.adminCancel(id));
+                assertTrue(returning.await(2, TimeUnit.SECONDS));
+                releaseInitialization.countDown();
+                ExecutionException failure = assertThrows(ExecutionException.class, () -> create.get(2, TimeUnit.SECONDS));
+                assertInstanceOf(DatawaveWebApplicationException.class, failure.getCause());
+                assertEquals(1, pool.getNumActive(), "The finished creator claimed the cancellation's pending return again");
+                assertTrue(pool.connectorCameFromHere(client));
+                assertTrue(qlCache.snapshot().containsKey(id), "Finishing evicted the pending return's cleanup owner");
+                releaseReturn.countDown();
+                cancel.get(2, TimeUnit.SECONDS);
+                assertEquals(0, pool.getNumActive());
+                assertFalse(pool.connectorCameFromHere(client));
+                assertTrue(qlCache.snapshot().isEmpty());
+                assertNull(cache.get(id));
+                verify(factory).returnClient(client);
+            } finally {
+                releaseInitialization.countDown();
+                releaseReturn.countDown();
+                requests.shutdownNow();
+                assertTrue(requests.awaitTermination(3, TimeUnit.SECONDS));
+                returnTrackedClients(pool, client);
+                logic.close();
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private QueryLogic<Object> logicForCreation(QueryImpl settings) throws Exception {
+        defineTestRunner(settings, createNewQueryParameterMap());
+        QueryLogic<Object> logic = (QueryLogic<Object>) cache.get(settings.getId().toString()).getLogic();
+        cache.remove(settings.getId().toString()); // Disconnected definition only: no execution or loan is released.
+        settings.setOwner(((DatawavePrincipal) ctx.getCallerPrincipal()).getShortName());
+        when(logic.getAuditType(any())).thenReturn(AuditType.NONE);
+        when(logic.getMaxWork()).thenReturn(-1L);
+        when(logic.initialize(any(), any(), any())).thenReturn(mock(GenericQueryConfiguration.class));
+        when(logic.getTransformIterator(any())).thenReturn(new TransformIterator<>(Collections.singletonList("row").iterator(), value -> value));
+        return logic;
+    }
+
+    private void cleanupCreation(String cleanup, String id, AccumuloConnectionFactory factory) {
+        switch (cleanup) {
+            case "adminCancel":
+                bean.adminCancel(id);
+                break;
+            case "adminClose":
+                bean.adminClose(id);
+                break;
+            case "cancel":
+                bean.cancel(id);
+                break;
+            case "close":
+                bean.close(id);
+                break;
+            case "expiration":
+                ReflectionTestUtils.setField(qlCache, "connectionFactory", factory);
+                qlCache.clearQueryLogics(Long.MAX_VALUE, 0);
+                break;
+            default:
+                throw new IllegalArgumentException(cleanup);
+        }
+    }
+
+    private QueryHeartbeat heartbeatWithNode(String id, AtomicBoolean closed) throws Exception {
+        PersistentNode node = mock(PersistentNode.class);
+        when(node.getActualPath()).thenAnswer(invocation -> closed.get() ? null : "/active/" + id);
+        doAnswer(invocation -> {
+            closed.set(true);
+            return null;
+        }).when(node).close();
+        return new QueryHeartbeat(id, Collections.singletonList(node));
+    }
+
+    private QueryExpirationBean accountingReconciliation(QueryLimiter limiter) {
+        QueryExpirationBean expiration = new QueryExpirationBean();
+        ReflectionTestUtils.setField(expiration, "queryCache", cache);
+        ReflectionTestUtils.setField(expiration, "queryLimiter", limiter);
+        ReflectionTestUtils.setField(expiration, "queryLogicCacheBean", qlCache);
+        return expiration;
+    }
+
     private AccumuloClientPool singleClientPool(AccumuloClient client) {
         AccumuloClientPoolFactory poolFactory = new AccumuloClientPoolFactory("test", "test", "unused", "unused") {
             @Override
@@ -2161,23 +2673,18 @@ public class QueryExecutorBeanTest {
             // initialize has not completed yet so it will not appear in the cache
             Object cachedRunningQuery = cache.get(q.getId().toString());
             assertNull(cachedRunningQuery);
-            Pair<QueryLogic<?>,AccumuloClient> pair = qlCache.poll(q.getId().toString());
+            // Inspect without claiming the creation's cleanup ownership or manufacturing a second cache entry.
+            Pair<QueryLogic<?>,AccumuloClient> pair = qlCache.snapshot().get(q.getId().toString());
             assertNotNull(pair);
             assertEquals(logic, pair.getLeft());
             assertEquals(c, pair.getRight());
 
-            // Have to add these back because poll was destructive
-            qlCache.add(q.getId().toString(), principal.getShortName(), pair.getLeft(), pair.getRight());
-
             // Call close
             bean.close(q.getId().toString());
 
-            // Make sure that it's gone from the qlCache
-            pair = qlCache.poll(q.getId().toString());
-            assertNull(pair, "Still found an entry in the qlCache: " + pair);
-
-            // Should have already joined by now, but just to be sure
+            // The owner may remain while creation acknowledges cancellation. Require retirement after the creator finishes cleanup.
             createQuery.join();
+            assertFalse(qlCache.snapshot().containsKey(q.getId().toString()), "Completed creation left its temporary cleanup owner cached");
 
         } finally {
             if (null != createQuery && createQuery.isAlive()) {

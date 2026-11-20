@@ -1,6 +1,7 @@
 package datawave.webservice.query.runner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
@@ -1266,7 +1267,8 @@ public class RunningQueryAsyncLifecycleTest {
     /**
      * Async maxWork was checked after hasNext but not after getNext's separate wait. Publish the exhausted next/seek budget while that latter wait returns a
      * row: output must match the control in which the same work is published before the next page starts. The queue gate allows the real producer to publish
-     * its counters before the request resumes; the test never mutates the live metric itself.
+     * its counters before the request resumes; the test never mutates the live metric itself. Hold the second metric callback until the poll starts so stronger
+     * budget checks inside the wait cannot bypass this separate post-getNext boundary.
      *
      * @param seekBudget
      *            whether seekCount rather than nextCount reaches maxWork
@@ -1281,6 +1283,7 @@ public class RunningQueryAsyncLifecycleTest {
         CountDownLatch releaseNext = new CountDownLatch(1);
         CountDownLatch pollBlocked = new CountDownLatch(1);
         CountDownLatch releasePoll = new CountDownLatch(1);
+        CountDownLatch releaseMetrics = new CountDownLatch(1);
         AtomicInteger index = new AtomicInteger();
         Iterator<Object> rows = new Iterator<>() {
             @Override
@@ -1304,6 +1307,15 @@ public class RunningQueryAsyncLifecycleTest {
                 long work = "a".equals(value) ? 1 : 100;
                 setWorkCounts(seekBudget ? 0 : work, seekBudget ? work : 0);
                 return value;
+            }
+
+            @Override
+            public void writeQueryMetrics(BaseQueryMetric metric) {
+                if (!publishBeforeRequest && getSourceCount() == 100) {
+                    // Keep wait-loop checks below the limit, then publish only after the real poll has returned its row.
+                    assertTrue(Uninterruptibles.awaitUninterruptibly(releaseMetrics, 5, TimeUnit.SECONDS), "Second metric publication was not released");
+                }
+                super.writeQueryMetrics(metric);
             }
         };
         RunningQuery query = query(executor(), Collections.<Object> singletonList("unused").iterator(), 1);
@@ -1333,6 +1345,7 @@ public class RunningQueryAsyncLifecycleTest {
             if (!publishBeforeRequest) {
                 assertTrue(pollBlocked.await(2, TimeUnit.SECONDS), "Request did not reach its second queue poll");
             }
+            releaseMetrics.countDown();
             Object generationLock = ReflectionTestUtils.getField(query, "running");
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
             long published;
@@ -1354,7 +1367,98 @@ public class RunningQueryAsyncLifecycleTest {
             assertEquals(1L, ReflectionTestUtils.getField(query, "numResults"), "The over-budget row must not be included in page accounting");
         } finally {
             releaseNext.countDown();
+            releaseMetrics.countDown();
             releasePoll.countDown();
+        }
+    }
+
+    /**
+     * Work published by a filtered row exhausted maxWork but supplied no queued result to finish getNext. The request waited for more backend work and timed
+     * out instead of returning normal work-limit completion. Publish next/seek exhaustion while the request waits, then hold the later backend hasNext call.
+     * The one-second Future deadline is below the normal ten-second page deadline: only budget handling can complete the request while that backend is held.
+     * Controls publish before requesting the next page; nonempty-page cases also preserve the row already collected in the same request.
+     *
+     * @param seekBudget
+     *            whether seekCount rather than nextCount exhausts the budget
+     * @param publishBeforeRequest
+     *            whether to run the already-exhausted-budget control
+     * @param samePage
+     *            whether the first row belongs to the waiting request rather than its preceding page
+     */
+    @ParameterizedTest
+    @CsvSource({"false, false, false", "true, false, false", "false, true, false", "true, true, false", "false, false, true", "true, false, true"})
+    public void filteredRowWorkExhaustionCompletesAWaitingPage(boolean seekBudget, boolean publishBeforeRequest, boolean samePage) throws Exception {
+        CountDownLatch filteredBlocked = new CountDownLatch(1);
+        CountDownLatch releaseFiltered = new CountDownLatch(1);
+        CountDownLatch backendBlocked = new CountDownLatch(1);
+        CountDownLatch releaseBackend = new CountDownLatch(1);
+        AtomicInteger calls = new AtomicInteger();
+        Iterator<Object> rows = new Iterator<>() {
+            @Override
+            public boolean hasNext() {
+                if (calls.get() < 2) {
+                    return true;
+                }
+                backendBlocked.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releaseBackend, 5, TimeUnit.SECONDS), "Post-budget backend wait was not released");
+                return false;
+            }
+
+            @Override
+            public Object next() {
+                if (calls.incrementAndGet() == 1) {
+                    return "first";
+                }
+                filteredBlocked.countDown();
+                assertTrue(Uninterruptibles.awaitUninterruptibly(releaseFiltered, 5, TimeUnit.SECONDS), "Filtered row was not released");
+                return "filtered";
+            }
+        };
+        MetricsTransformer transformer = new MetricsTransformer(0, 0) {
+            @Override
+            public Object transform(Object value) {
+                long work = "first".equals(value) ? 1 : 100;
+                setWorkCounts(seekBudget ? 0 : work, seekBudget ? work : 0);
+                return "filtered".equals(value) ? null : value;
+            }
+        };
+        RunningQuery query = query(executor(), Collections.<Object> singletonList("unused").iterator(), samePage ? 2 : 1);
+        when(query.getLogic().getMaxWork()).thenReturn(100L);
+        when(query.getLogic().getTransformIterator(query.getSettings())).thenReturn(new TransformIterator<>(rows, transformer));
+        query.setClient(mock(AccumuloClient.class));
+        try {
+            Future<ResultsPage> page = samePage ? executor().submit(query::next) : null;
+            if (!samePage) {
+                assertEquals(Collections.singletonList("first"), query.next().getResults());
+            }
+            assertTrue(filteredBlocked.await(2, TimeUnit.SECONDS));
+            if (!publishBeforeRequest) {
+                if (!samePage) {
+                    page = executor().submit(query::next);
+                }
+                awaitResultWait(query, "getNext");
+            }
+            releaseFiltered.countDown();
+            assertTrue(backendBlocked.await(2, TimeUnit.SECONDS), "Producer did not publish work before starting further backend work");
+            Object generationLock = ReflectionTestUtils.getField(query, "running");
+            synchronized (generationLock) {
+                assertWorkMetrics(query, seekBudget ? 0 : 100, seekBudget ? 100 : 0);
+            }
+            Future<ResultsPage> waitingPage = page;
+            ResultsPage result = publishBeforeRequest ? query.next()
+                            : assertDoesNotThrow(() -> waitingPage.get(1, TimeUnit.SECONDS),
+                                            "Published work exhaustion must finish the wait without another row");
+            if (samePage) {
+                assertEquals(Collections.singletonList("first"), result.getResults());
+                result = query.next();
+            }
+            assertEquals(ResultsPage.Status.NONE, result.getStatus());
+            assertTrue(result.getResults().isEmpty());
+            assertEquals(BaseQueryMetric.Lifecycle.MAXWORK, query.getMetric().getLifecycle());
+            assertEquals(1L, ReflectionTestUtils.getField(query, "numResults"));
+        } finally {
+            releaseFiltered.countDown();
+            releaseBackend.countDown();
         }
     }
 

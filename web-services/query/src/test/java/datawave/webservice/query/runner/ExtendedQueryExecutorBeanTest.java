@@ -56,6 +56,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -240,7 +241,19 @@ public class ExtendedQueryExecutorBeanTest {
     public static void setup() throws Exception {}
 
     @BeforeEach
-    public void setupBefore() throws Exception {
+    public void setupBefore(TestInfo testInfo) throws Exception {
+        if (testInfo.getTestMethod().map(method -> method.getName().startsWith("testCreateQuery")).orElse(false)) {
+            // Creation now owns the ID lock and shares a real temporary return claim. Keep the rest of this broad fixture mocked.
+            // Dispatch by method name so this adapter also compiles and passes against the pre-fix implementation.
+            when(cache.lock(anyString())).thenReturn(true);
+            CreatedQueryLogicCacheBean creationOwners = new CreatedQueryLogicCacheBean();
+            qlCache = mock(CreatedQueryLogicCacheBean.class, invocation -> {
+                if (invocation.getMethod().getName().equals("addForCreation")) {
+                    return invocation.getMethod().invoke(creationOwners, invocation.getArguments());
+                }
+                return org.mockito.Mockito.RETURNS_DEFAULTS.answer(invocation);
+            });
+        }
 
         queryLogic2 = mock(QuerySyntaxParserQueryLogic.class);
 
